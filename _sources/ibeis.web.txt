@@ -4,18 +4,42 @@ ibeis.web package
 Submodules
 ----------
 
-ibeis.web.DBWEB_SCHEMA module
------------------------------
+ibeis.web.apis module
+---------------------
 
-.. automodule:: ibeis.web.DBWEB_SCHEMA
+.. automodule:: ibeis.web.apis
     :members:
     :undoc-members:
     :show-inheritance:
 
-ibeis.web.DBWEB_SCHEMA_CURRENT module
--------------------------------------
+ibeis.web.apis_detect module
+----------------------------
 
-.. automodule:: ibeis.web.DBWEB_SCHEMA_CURRENT
+.. automodule:: ibeis.web.apis_detect
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.web.apis_engine module
+----------------------------
+
+.. automodule:: ibeis.web.apis_engine
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.web.apis_json module
+--------------------------
+
+.. automodule:: ibeis.web.apis_json
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.web.apis_query module
+---------------------------
+
+.. automodule:: ibeis.web.apis_query
     :members:
     :undoc-members:
     :show-inheritance:
@@ -36,10 +60,42 @@ ibeis.web.appfuncs module
     :undoc-members:
     :show-inheritance:
 
-ibeis.web.navbar module
+ibeis.web.routes module
 -----------------------
 
-.. automodule:: ibeis.web.navbar
+.. automodule:: ibeis.web.routes
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.web.routes_ajax module
+----------------------------
+
+.. automodule:: ibeis.web.routes_ajax
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.web.routes_csv module
+---------------------------
+
+.. automodule:: ibeis.web.routes_csv
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.web.routes_submit module
+------------------------------
+
+.. automodule:: ibeis.web.routes_submit
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.web.test_api module
+-------------------------
+
+.. automodule:: ibeis.web.test_api
     :members:
     :undoc-members:
     :show-inheritance:

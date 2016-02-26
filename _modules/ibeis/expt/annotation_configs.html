@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>ibeis.expt.annotation_configs &mdash; ibeis 1.4.7 documentation</title>
+  <title>ibeis.expt.annotation_configs &mdash; ibeis 1.5.1 documentation</title>
   
 
   
@@ -30,7 +30,7 @@
   
 
   
-    <link rel="top" title="ibeis 1.4.7 documentation" href="../../../index.html"/>
+    <link rel="top" title="ibeis 1.5.1 documentation" href="../../../index.html"/>
         <link rel="up" title="ibeis.expt" href="../expt.html"/> 
 
   
@@ -59,7 +59,7 @@
             
             
               <div class="version">
-                1.4.7
+                1.5.1
               </div>
             
           
@@ -141,7 +141,7 @@
 <span class="kn">import</span> <span class="nn">utool</span> <span class="kn">as</span> <span class="nn">ut</span>
 <span class="kn">from</span> <span class="nn">ibeis.expt</span> <span class="kn">import</span> <span class="n">cfghelpers</span>
 <span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>  <span class="c"># NOQA</span>
-<span class="k">print</span><span class="p">,</span> <span class="n">print_</span><span class="p">,</span> <span class="n">printDBG</span><span class="p">,</span> <span class="n">rrr</span><span class="p">,</span> <span class="n">profile</span> <span class="o">=</span> <span class="n">ut</span><span class="o">.</span><span class="n">inject</span><span class="p">(</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&#39;[aidcfg]&#39;</span><span class="p">)</span>
+<span class="k">print</span><span class="p">,</span> <span class="n">rrr</span><span class="p">,</span> <span class="n">profile</span> <span class="o">=</span> <span class="n">ut</span><span class="o">.</span><span class="n">inject2</span><span class="p">(</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&#39;[aidcfg]&#39;</span><span class="p">)</span>
 
 
 <span class="c"># easier to type names to alias some of these options</span>
@@ -157,10 +157,13 @@
 <span class="p">}</span>
 
 <span class="n">OTHER_DEFAULTS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s">&#39;force_const_size&#39;</span>    <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
     <span class="c"># forces a consistnet sample size across combinations</span>
+    <span class="s">&#39;force_const_size&#39;</span>    <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
     <span class="c">#&#39;hack_extra&#39; : None,  # hack param to make bigger db sizes</span>
-    <span class="c">#&#39;hack_encounter&#39;: None,</span>
+    <span class="c">#&#39;hack_imageset&#39;: None,</span>
+    <span class="c"># Hack out errors in test data</span>
+    <span class="s">&#39;hackerrors&#39;</span>    <span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+    <span class="s">&#39;joinme&#39;</span>    <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
 <span class="p">}</span>
 
 <span class="c"># Defaults for the independent filter</span>
@@ -199,12 +202,14 @@
 
 
 <span class="n">INTRAGROUP_DEFAULTS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="c"># if True all annots must belong to the same encounter</span>
-    <span class="s">&#39;same_encounter&#39;</span>      <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="c"># if True all annots must belong to the same imageset</span>
+    <span class="s">&#39;same_imageset&#39;</span>      <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
     <span class="s">&#39;view_pername&#39;</span>        <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>  <span class="c"># formatted string filtering the viewpoints</span>
     <span class="s">&#39;min_timedelta&#39;</span>       <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
     <span class="c"># minimum number of aids for each name in sample</span>
     <span class="s">&#39;min_pername&#39;</span>         <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&#39;min_spacedelta&#39;</span>      <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&#39;min_spacetimedelta&#39;</span>  <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
 <span class="p">}</span>
 <span class="n">INDEPENDENT_DEFAULTS</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">INTRAGROUP_DEFAULTS</span><span class="p">)</span>  <span class="c"># hack</span>
 
@@ -216,11 +221,15 @@
 
 <span class="n">SAMPLE_DEFAULTS</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s">&#39;sample_size&#39;</span>         <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&#39;num_names&#39;</span>           <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
     <span class="c"># Gets as close to sample size without removing other props</span>
     <span class="c"># Per Name / Exemplar Params</span>
     <span class="s">&#39;sample_per_name&#39;</span>     <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>  <span class="c"># Choos num_annots to sample from each name.</span>
     <span class="s">&#39;sample_rule&#39;</span>         <span class="p">:</span> <span class="s">&#39;random&#39;</span><span class="p">,</span>
     <span class="s">&#39;sample_offset&#39;</span>       <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>  <span class="c"># UNUSED</span>
+    <span class="s">&#39;occur_offset&#39;</span>        <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>  <span class="c"># UNUSED</span>
+    <span class="s">&#39;name_offset&#39;</span>         <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>  <span class="c"># UNUSED</span>
+    <span class="s">&#39;sample_occur&#39;</span>        <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
 <span class="p">}</span>
 
 <span class="n">SAMPLE_REF_DEFAULTS</span> <span class="o">=</span> <span class="p">{</span>
@@ -249,7 +258,8 @@
 <span class="sd">        dict: acfg</span>
 
 <span class="sd">    CommandLine:</span>
-<span class="sd">        python -m ibeis --tf compress_aidcfg</span>
+<span class="sd">        #python -m ibeis --tf compress_aidcfg</span>
+<span class="sd">        python -m ibeis.expt.annotation_configs --exec-compress_aidcfg --show</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; # DISABLE_DOCTEST</span>
@@ -402,7 +412,30 @@
 </div>
 <div class="viewcode-block" id="print_acfg_list"><a class="viewcode-back" href="../../../ibeis.expt.html#ibeis.expt.annotation_configs.print_acfg_list">[docs]</a><span class="k">def</span> <span class="nf">print_acfg_list</span><span class="p">(</span><span class="n">acfg_list</span><span class="p">,</span> <span class="n">expanded_aids_list</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">ibs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
                     <span class="n">combined</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="sd">r&quot;&quot;&quot;</span>
+<span class="sd">    Args:</span>
+<span class="sd">        acfg_list (list):</span>
+<span class="sd">        expanded_aids_list (list): (default = None)</span>
+<span class="sd">        ibs (IBEISController):  ibeis controller object(default = None)</span>
+<span class="sd">        combined (bool): (default = False)</span>
 
+<span class="sd">    CommandLine:</span>
+<span class="sd">        python -m ibeis.expt.annotation_configs --exec-print_acfg_list --show</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; # DISABLE_DOCTEST</span>
+<span class="sd">        &gt;&gt;&gt; from ibeis.expt.annotation_configs import *  # NOQA</span>
+<span class="sd">        &gt;&gt;&gt; import ibeis</span>
+<span class="sd">        &gt;&gt;&gt; acfg_list = &#39;?&#39;</span>
+<span class="sd">        &gt;&gt;&gt; expanded_aids_list = None</span>
+<span class="sd">        &gt;&gt;&gt; ibs = None</span>
+<span class="sd">        &gt;&gt;&gt; combined = False</span>
+<span class="sd">        &gt;&gt;&gt; result = print_acfg_list(acfg_list, expanded_aids_list, ibs, combined)</span>
+<span class="sd">        &gt;&gt;&gt; print(result)</span>
+<span class="sd">        &gt;&gt;&gt; ut.quit_if_noshow()</span>
+<span class="sd">        &gt;&gt;&gt; import plottool as pt</span>
+<span class="sd">        &gt;&gt;&gt; ut.show_if_requested()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">_tup</span> <span class="o">=</span> <span class="n">compress_acfg_list_for_printing</span><span class="p">(</span><span class="n">acfg_list</span><span class="p">)</span>
     <span class="n">nonvaried_compressed_dict</span><span class="p">,</span> <span class="n">varied_compressed_dict_list</span> <span class="o">=</span> <span class="n">_tup</span>
 
@@ -418,6 +451,7 @@
         <span class="n">annotstats_kw</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">ut</span><span class="o">.</span><span class="n">argparse_dict</span><span class="p">(</span>
             <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">kwkeys</span><span class="p">,</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwkeys</span><span class="p">))),</span> <span class="n">only_specified</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
 
+    <span class="n">hashid_list</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">acfgx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">acfg_list</span><span class="p">)):</span>
         <span class="n">acfg</span> <span class="o">=</span> <span class="n">acfg_list</span><span class="p">[</span><span class="n">acfgx</span><span class="p">]</span>
         <span class="n">title</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;q_cfgname=&#39;</span> <span class="o">+</span> <span class="n">acfg</span><span class="p">[</span><span class="s">&#39;qcfg&#39;</span><span class="p">][</span><span class="s">&#39;_cfgname&#39;</span><span class="p">]</span> <span class="o">+</span>
@@ -435,14 +469,22 @@
             <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen_</span><span class="p">:</span>
                 <span class="k">if</span> <span class="n">ibs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
                     <span class="n">seen_</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">acfgx</span><span class="p">)</span>
-                    <span class="n">annotconfig_stats_strs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ibs</span><span class="o">.</span><span class="n">get_annotconfig_stats</span><span class="p">(</span>
-                        <span class="n">qaids</span><span class="p">,</span> <span class="n">daids</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">combined</span><span class="o">=</span><span class="n">combined</span><span class="p">,</span>
+                    <span class="n">stats_</span><span class="p">,</span> <span class="n">locals_</span> <span class="o">=</span> <span class="n">ibs</span><span class="o">.</span><span class="n">get_annotconfig_stats</span><span class="p">(</span>
+                        <span class="n">qaids</span><span class="p">,</span> <span class="n">daids</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">combined</span><span class="o">=</span><span class="n">combined</span><span class="p">,</span>
                         <span class="o">**</span><span class="n">annotstats_kw</span><span class="p">)</span>
+                    <span class="n">hashids</span> <span class="o">=</span> <span class="p">(</span><span class="n">stats_</span><span class="p">[</span><span class="s">&#39;qaid_stats&#39;</span><span class="p">][</span><span class="s">&#39;qhashid&#39;</span><span class="p">],</span>
+                               <span class="n">stats_</span><span class="p">[</span><span class="s">&#39;daid_stats&#39;</span><span class="p">][</span><span class="s">&#39;dhashid&#39;</span><span class="p">])</span>
+                    <span class="n">hashid_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">hashids</span><span class="p">)</span>
+                    <span class="n">stats_str2</span> <span class="o">=</span> <span class="n">ut</span><span class="o">.</span><span class="n">dict_str</span><span class="p">(</span><span class="n">stats_</span><span class="p">,</span> <span class="n">strvals</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                                             <span class="n">newlines</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">explicit</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                                             <span class="n">nobraces</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+                    <span class="k">print</span><span class="p">(</span><span class="s">&#39;annot_config_stats = &#39;</span> <span class="o">+</span> <span class="n">stats_str2</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">dupindex</span> <span class="o">=</span> <span class="n">seen_</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
                 <span class="k">print</span><span class="p">(</span><span class="s">&#39;DUPLICATE of index </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">dupindex</span><span class="p">,))</span>
                 <span class="n">dupdict</span> <span class="o">=</span> <span class="n">varied_compressed_dict_list</span><span class="p">[</span><span class="n">dupindex</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
                 <span class="k">print</span><span class="p">(</span><span class="s">&#39;DUP OF acfg = &#39;</span> <span class="o">+</span> <span class="n">ut</span><span class="o">.</span><span class="n">dict_str</span><span class="p">(</span><span class="n">dupdict</span><span class="p">,</span> <span class="n">strvals</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">&#39;hashid summary = &#39;</span> <span class="o">+</span> <span class="n">ut</span><span class="o">.</span><span class="n">list_str</span><span class="p">(</span><span class="n">hashid_list</span><span class="p">,</span> <span class="n">nl</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
     <span class="n">ut</span><span class="o">.</span><span class="n">colorprint</span><span class="p">(</span><span class="s">&#39;L___ &lt;/Info acfg_list&gt; ___&#39;</span><span class="p">,</span> <span class="s">&#39;white&#39;</span><span class="p">)</span>
 
 </div>
@@ -520,6 +562,21 @@
 
     <span class="s">&#39;dcfg&#39;</span><span class="p">:</span> <span class="n">ut</span><span class="o">.</span><span class="n">augdict</span><span class="p">(</span>
         <span class="n">single_default</span><span class="p">,</span> <span class="p">{</span>
+        <span class="p">}),</span>
+<span class="p">}</span>
+
+
+<span class="n">default2</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&#39;qcfg&#39;</span><span class="p">:</span> <span class="n">ut</span><span class="o">.</span><span class="n">augdict</span><span class="p">(</span>
+        <span class="n">default</span><span class="p">[</span><span class="s">&#39;qcfg&#39;</span><span class="p">],</span> <span class="p">{</span>
+            <span class="s">&#39;exclude_reference&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+            <span class="s">&#39;is_known&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+        <span class="p">}),</span>
+
+    <span class="s">&#39;dcfg&#39;</span><span class="p">:</span> <span class="n">ut</span><span class="o">.</span><span class="n">augdict</span><span class="p">(</span>
+        <span class="n">default</span><span class="p">[</span><span class="s">&#39;dcfg&#39;</span><span class="p">],</span> <span class="p">{</span>
+            <span class="s">&#39;exclude_reference&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+            <span class="s">&#39;is_known&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
         <span class="p">}),</span>
 <span class="p">}</span>
 
@@ -850,7 +907,7 @@
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2015, Jon Crall.
+        &copy; Copyright 2016, Jon Crall.
 
     </p>
   </div>
@@ -872,7 +929,7 @@
     <script type="text/javascript">
         var DOCUMENTATION_OPTIONS = {
             URL_ROOT:'../../../',
-            VERSION:'1.4.7',
+            VERSION:'1.5.1',
             COLLAPSE_INDEX:false,
             FILE_SUFFIX:'.html',
             HAS_SOURCE:  true
