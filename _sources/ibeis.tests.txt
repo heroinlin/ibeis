@@ -20,14 +20,6 @@ ibeis.tests.reset_testdbs module
     :undoc-members:
     :show-inheritance:
 
-ibeis.tests.run_tests module
-----------------------------
-
-.. automodule:: ibeis.tests.run_tests
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 ibeis.tests.test_delete_annotation module
 -----------------------------------------
 
@@ -76,6 +68,30 @@ ibeis.tests.test_delete_features module
     :undoc-members:
     :show-inheritance:
 
+ibeis.tests.test_delete_image module
+------------------------------------
+
+.. automodule:: ibeis.tests.test_delete_image
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_delete_image_thumbtups module
+----------------------------------------------
+
+.. automodule:: ibeis.tests.test_delete_image_thumbtups
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_delete_names module
+------------------------------------
+
+.. automodule:: ibeis.tests.test_delete_names
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 ibeis.tests.test_gui_add_annotation module
 ------------------------------------------
 
@@ -120,6 +136,30 @@ ibeis.tests.test_ibs module
 ---------------------------
 
 .. automodule:: ibeis.tests.test_ibs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_ibs_add_images module
+--------------------------------------
+
+.. automodule:: ibeis.tests.test_ibs_add_images
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_ibs_add_name module
+------------------------------------
+
+.. automodule:: ibeis.tests.test_ibs_add_name
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_ibs_chip_compute module
+----------------------------------------
+
+.. automodule:: ibeis.tests.test_ibs_chip_compute
     :members:
     :undoc-members:
     :show-inheritance:
@@ -184,6 +224,22 @@ ibeis.tests.test_ibs_info module
 --------------------------------
 
 .. automodule:: ibeis.tests.test_ibs_info
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_ibs_localize_images module
+-------------------------------------------
+
+.. automodule:: ibeis.tests.test_ibs_localize_images
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_ibs_query module
+---------------------------------
+
+.. automodule:: ibeis.tests.test_ibs_query
     :members:
     :undoc-members:
     :show-inheritance:
@@ -280,6 +336,30 @@ ibeis.tests.test_utool_parallel module
 --------------------------------------
 
 .. automodule:: ibeis.tests.test_utool_parallel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_uuid_consistency module
+----------------------------------------
+
+.. automodule:: ibeis.tests.test_uuid_consistency
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_view_interact module
+-------------------------------------
+
+.. automodule:: ibeis.tests.test_view_interact
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+ibeis.tests.test_view_viz module
+--------------------------------
+
+.. automodule:: ibeis.tests.test_view_viz
     :members:
     :undoc-members:
     :show-inheritance:
