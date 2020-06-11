@@ -52,8 +52,11 @@ def _get_all_imgsetids(ibs):
 @register_ibs_method
 @accessor_decors.ider
 @register_api('/api/imageset/', methods=['GET'])
-def get_valid_imgsetids(ibs, min_num_gids=0, processed=None, shipped=None):
+def get_valid_imgsetids(ibs, min_num_gids=0, processed=None, shipped=None,
+                        is_occurrence=None, is_special=None):
     r"""
+    FIX NAME imgagesetids
+
     Returns:
         list_ (list):  list of all imageset ids
 
@@ -68,14 +71,39 @@ def get_valid_imgsetids(ibs, min_num_gids=0, processed=None, shipped=None):
         imgsetid_list  = ut.compress(imgsetid_list, flag_list)
     if processed is not None:
         flag_list = ibs.get_imageset_processed_flags(imgsetid_list)
-        isvalid_list = [ flag == 1 if processed else flag == 0 for flag in flag_list]
+        isvalid_list = [flag == 1 if processed else flag == 0 for flag in flag_list]
         imgsetid_list  = ut.compress(imgsetid_list, isvalid_list)
     if shipped is not None:
         flag_list = ibs.get_imageset_shipped_flags(imgsetid_list)
-        isvalid_list = [ flag == 1 if shipped else flag == 0 for flag in flag_list]
+        isvalid_list = [flag == 1 if shipped else flag == 0 for flag in flag_list]
         imgsetid_list  = ut.compress(imgsetid_list, isvalid_list)
-
+    if is_occurrence is not None:
+        flag_list = ibs.get_imageset_isoccurrence(imgsetid_list)
+        isvalid_list = [flag == is_occurrence for flag in flag_list]
+        imgsetid_list  = ut.compress(imgsetid_list, isvalid_list)
+    if is_special is not None:
+        flag_list = ibs.is_special_imageset(imgsetid_list)
+        isvalid_list = [flag == is_special for flag in flag_list]
+        imgsetid_list  = ut.compress(imgsetid_list, isvalid_list)
     return imgsetid_list
+
+
+@register_ibs_method
+def is_special_imageset(ibs, imgsetid_list):
+    imagesettext_list = ibs.get_imageset_text(imgsetid_list)
+    isspecial_list = [str(imagesettext) in set(const.SPECIAL_IMAGESET_LABELS)
+                      for imagesettext in imagesettext_list]
+    return isspecial_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1to1
+@register_api('/api/imageset/occurrence/', methods=['GET'])
+def get_imageset_isoccurrence(ibs, imgsetid_list):
+    flags = ut.not_list(ibs.is_special_imageset(imgsetid_list))
+    #imgset_texts = ibs.get_imageset_text(imgsetid_list)
+    #flags = [text.lower().startswith('occurrence') for text in imgset_texts]
+    return flags
 
 
 @register_ibs_method
@@ -142,12 +170,12 @@ def set_imageset_text(ibs, imgsetid_list, imageset_text_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/num_imgs_reviewed/', methods=['GET'])
+@register_api('/api/imageset/num/image/reviewed/', methods=['GET'])
 def get_imageset_num_imgs_reviewed(ibs, imgsetid_list):
     r"""
     RESTful:
         Method: GET
-        URL:    /api/imageset/num_imgs_reviewed/
+        URL:    /api/imageset/num/image/reviewed/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -155,7 +183,7 @@ def get_imageset_num_imgs_reviewed(ibs, imgsetid_list):
         >>> ibs, config2_ = testdata_ibs()
         >>> # Reset and compute imagesets
         >>> ibs.delete_all_imagesets()
-        >>> ibs.compute_occurrences()
+        >>> ibs.compute_occurrences(config={'use_gps': False, 'seconds_thresh': 600})
         >>> imgsetid_list = ibs.get_valid_imgsetids()
         >>> num_reviwed_list = ibs.get_imageset_num_imgs_reviewed(imgsetid_list)
         >>> result = num_reviwed_list
@@ -170,12 +198,40 @@ def get_imageset_num_imgs_reviewed(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/num_annotmatch_reviewed/', methods=['GET'])
+@register_api('/api/imageset/num/annot/reviewed/', methods=['GET'])
+def get_imageset_num_annots_reviewed(ibs, imgsetid_list):
+    r"""
+    RESTful:
+        Method: GET
+        URL:    /api/imageset/num/annot/reviewed/
+
+    Example:
+        >>> # ENABLE_DOCTEST
+        >>> from ibeis.control.manual_imageset_funcs import *  # NOQA
+        >>> ibs, config2_ = testdata_ibs()
+        >>> # Reset and compute imagesets
+        >>> ibs.delete_all_imagesets()
+        >>> ibs.compute_occurrences(config={'use_gps': False, 'seconds_thresh': 600})
+        >>> imgsetid_list = ibs.get_valid_imgsetids()
+        >>> num_reviwed_list = ibs.get_imageset_num_imgs_reviewed(imgsetid_list)
+        >>> result = num_reviwed_list
+        >>> print(result)
+        [0, 0]
+    """
+    aids_list = ibs.get_imageset_aids(imgsetid_list)
+    flags_list = ibs.unflat_map(ibs.get_annot_reviewed, aids_list)
+    num_reviwed_list = [sum(flags) for flags in flags_list]
+    return num_reviwed_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1to1
+# @register_api('/api/imageset/num/annotmatch/reviewed/', methods=['GET'])
 def get_imageset_num_annotmatch_reviewed(ibs, imgsetid_list):
     r"""
     RESTful:
         Method: GET
-        URL:    /api/imageset/num_annotmatch_reviewed/
+        URL:    /api/imageset/num/annotmatch/reviewed/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -193,12 +249,12 @@ def get_imageset_num_annotmatch_reviewed(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/num_names_with_exemplar/', methods=['GET'])
+@register_api('/api/imageset/num/name/exemplar/', methods=['GET'])
 def get_imageset_num_names_with_exemplar(ibs, imgsetid_list):
     r"""
     RESTful:
         Method: GET
-        URL:    /api/imageset/num_names_with_exemplar/
+        URL:    /api/imageset/num/name/exemplar/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -223,13 +279,8 @@ def get_imageset_num_names_with_exemplar(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/fraction_names_with_exemplar/', methods=['GET'])
 def get_imageset_fraction_names_with_exemplar(ibs, imgsetid_list):
     r"""
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/fraction_names_with_exemplar/
-
     Example:
         >>> # DISABLE_DOCTEST
         >>> from ibeis.control.manual_imageset_funcs import *  # NOQA
@@ -259,13 +310,7 @@ def get_imageset_fraction_names_with_exemplar(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/fraction_annotmatch_reviewed/', methods=['GET'])
 def get_imageset_fraction_annotmatch_reviewed(ibs, imgsetid_list):
-    r"""
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/fraction_annotmatch_reviewed/
-    """
     aids_list = ibs.get_imageset_custom_filtered_aids(imgsetid_list)
     flags_list = ibs.unflat_map(ibs.get_annot_has_reviewed_matching_aids, aids_list)
     fraction_annotmatch_reviewed_list = [None if len(flags) == 0 else sum(flags) / len(flags)
@@ -275,30 +320,20 @@ def get_imageset_fraction_annotmatch_reviewed(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.default_decorator
-@register_api('/api/imageset/custom_filtered_aids/', methods=['GET'])
+# @register_api('/api/imageset/aids/filtered/custom/', methods=['GET'])
 def get_imageset_custom_filtered_aids(ibs, imgsetid_list):
     r"""
     hacks to filter aids to only certain views and qualities
-
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/custom_filtered_aids/
     """
     aids_list_ = ibs.get_imageset_aids(imgsetid_list)
     # HACK: Get percentage for the annots we currently care about
-    aids_list = [ibs.filter_aids_custom(aids) for aids in aids_list_]
+    aids_list = [(aids) for aids in aids_list_]
     return aids_list
 
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/fraction_imgs_reviewed/', methods=['GET'])
 def get_imageset_fraction_imgs_reviewed(ibs, imgsetid_list):
-    r"""
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/fraction_imgs_reviewed/
-    """
     gids_list = ibs.get_imageset_gids(imgsetid_list)
     flags_list = ibs.unflat_map(ibs.get_image_reviewed, gids_list)
     fraction_imgs_reviewed_list = [None if len(flags) == 0 else sum(flags) / len(flags)
@@ -309,13 +344,7 @@ def get_imageset_fraction_imgs_reviewed(ibs, imgsetid_list):
 @register_ibs_method
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.IMAGESET_TABLE, 'percent_names_with_exemplar_str', debug=False)  # HACK
-@register_api('/api/imageset/percent_names_with_exemplar_str/', methods=['GET'])
 def get_imageset_percent_names_with_exemplar_str(ibs, imgsetid_list):
-    r"""
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/percent_names_with_exemplar_str/
-    """
     fraction_exemplared_names_list = ibs.get_imageset_fraction_names_with_exemplar(imgsetid_list)
     percent_exemplared_names_list_str = list(map(ut.percent_str, fraction_exemplared_names_list))
     return percent_exemplared_names_list_str
@@ -324,13 +353,7 @@ def get_imageset_percent_names_with_exemplar_str(ibs, imgsetid_list):
 @register_ibs_method
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.IMAGESET_TABLE, 'percent_imgs_reviewed_str', debug=False)  # HACK
-@register_api('/api/imageset/percent_imgs_reviewed_str/', methods=['GET'])
 def get_imageset_percent_imgs_reviewed_str(ibs, imgsetid_list):
-    r"""
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/percent_imgs_reviewed_str/
-    """
     fraction_imgs_reviewed_list = ibs.get_imageset_fraction_imgs_reviewed(imgsetid_list)
     percent_imgs_reviewed_str_list = list(map(ut.percent_str, fraction_imgs_reviewed_list))
     return percent_imgs_reviewed_str_list
@@ -339,13 +362,7 @@ def get_imageset_percent_imgs_reviewed_str(ibs, imgsetid_list):
 @register_ibs_method
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.IMAGESET_TABLE, 'percent_annotmatch_reviewed_str', debug=False)  # HACK
-@register_api('/api/imageset/percent_annotmatch_reviewed_str/', methods=['GET'])
 def get_imageset_percent_annotmatch_reviewed_str(ibs, imgsetid_list):
-    r"""
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/percent_annotmatch_reviewed_str/
-    """
     fraction_annotmatch_reviewed_list = ibs.get_imageset_fraction_annotmatch_reviewed(imgsetid_list)
     percent_annotmach_reviewed_str_list = list(map(ut.percent_str, fraction_annotmatch_reviewed_list))
     return percent_annotmach_reviewed_str_list
@@ -353,7 +370,7 @@ def get_imageset_percent_annotmatch_reviewed_str(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/num_gids/', methods=['GET'])
+@register_api('/api/imageset/num/image/', methods=['GET'])
 def get_imageset_num_gids(ibs, imgsetid_list):
     r"""
     Returns:
@@ -361,7 +378,7 @@ def get_imageset_num_gids(ibs, imgsetid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/num_gids/
+        URL:    /api/imageset/num/image/
     """
     nGids_list = list(map(len, ibs.get_imageset_gids(imgsetid_list)))
     return nGids_list
@@ -369,7 +386,7 @@ def get_imageset_num_gids(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/num_aids/', methods=['GET'])
+@register_api('/api/imageset/num/annot/', methods=['GET'])
 def get_imageset_num_aids(ibs, imgsetid_list):
     r"""
     Returns:
@@ -377,7 +394,7 @@ def get_imageset_num_aids(ibs, imgsetid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/num_aids/
+        URL:    /api/imageset/num/annot/
     """
     nAids_list = list(map(len, ibs.get_imageset_aids(imgsetid_list)))
     return nAids_list
@@ -385,7 +402,7 @@ def get_imageset_num_aids(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1toM
-@register_api('/api/imageset/aids/', methods=['GET'])
+@register_api('/api/imageset/annot/rowid/', methods=['GET'])
 def get_imageset_aids(ibs, imgsetid_list):
     r"""
     Returns:
@@ -393,7 +410,7 @@ def get_imageset_aids(ibs, imgsetid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/aids/
+        URL:    /api/imageset/annot/rowid/
 
     Args:
         ibs (IBEISController):  ibeis controller object
@@ -411,7 +428,7 @@ def get_imageset_aids(ibs, imgsetid_list):
         >>> import ibeis
         >>> ibs = ibeis.opendb(defaultdb='testdb1')
         >>> ibs.delete_imagesets(ibs.get_valid_imgsetids())
-        >>> ibs.compute_occurrences()
+        >>> ibs.compute_occurrences(config={'use_gps': False, 'seconds_thresh': 600})
         >>> imgsetid_list = ibs.get_valid_imgsetids()
         >>> aids_list = get_imageset_aids(ibs, imgsetid_list)
         >>> result = ('aids_list = %s' % (str(aids_list),))
@@ -430,8 +447,48 @@ def get_imageset_aids(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1toM
+@register_api('/api/imageset/annot/uuid/', methods=['GET'])
+def get_imageset_uuids(ibs, imgsetid_list):
+    r"""
+    Args:
+        ibs (IBEISController):  ibeis controller object
+        imgsetid_list (list):
+
+    Returns:
+        list: annot_uuids_list
+
+    RESTful:
+        Method: GET
+        URL:    /api/imageset/annot/uuid/
+
+    CommandLine:
+        python -m ibeis.control.manual_imageset_funcs --test-get_imageset_aids
+
+    Example:
+        >>> # DISABLE_DOCTEST
+        >>> from ibeis.control.manual_imageset_funcs import *  # NOQA
+        >>> import ibeis
+        >>> ibs = ibeis.opendb(defaultdb='testdb1')
+        >>> ibs.delete_imagesets(ibs.get_valid_imgsetids())
+        >>> ibs.compute_occurrences(config={'use_gps': False, 'seconds_thresh': 600})
+        >>> imgsetid_list = ibs.get_valid_imgsetids()
+        >>> aids_list = get_imageset_aids(ibs, imgsetid_list)
+        >>> result = ('aids_list = %s' % (str(aids_list),))
+        >>> print(result)
+    """
+    aids_list = ibs.get_imageset_aids(imgsetid_list)
+    annot_uuids_list = [
+        ibs.get_annot_uuids(aid_list)
+        for aid_list in aids_list
+    ]
+    return annot_uuids_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1toM
 @accessor_decors.cache_getter(const.IMAGESET_TABLE, 'image_rowids')
-@register_api('/api/imageset/gids/', methods=['GET'])
+@register_api('/api/imageset/image/rowid/', methods=['GET'])
+@profile
 def get_imageset_gids(ibs, imgsetid_list):
     r"""
     Returns:
@@ -439,9 +496,17 @@ def get_imageset_gids(ibs, imgsetid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/gids/
+        URL:    /api/imageset/image/rowid/
     """
     # FIXME: MAKE SQL-METHOD FOR NON-ROWID GETTERS
+    NEW_INDEX_HACK = True
+    if NEW_INDEX_HACK:
+        # FIXME: This index should when the database is defined.
+        # Ensure that an index exists on the image column of the annotation table
+        ibs.db.connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS gids_to_gs ON {GSG_RELATION_TABLE} (imageset_rowid);
+            '''.format(GSG_RELATION_TABLE=const.GSG_RELATION_TABLE)).fetchall()
     gids_list = ibs.db.get(const.GSG_RELATION_TABLE, ('image_rowid',), imgsetid_list, id_colname='imageset_rowid', unpack_scalars=False)
     #print('get_imageset_gids')
     #print('imgsetid_list = %r' % (imgsetid_list,))
@@ -450,16 +515,32 @@ def get_imageset_gids(ibs, imgsetid_list):
 
 
 @register_ibs_method
+@accessor_decors.getter_1toM
+@register_api('/api/imageset/image/uuid/', methods=['GET'])
+def get_imageset_image_uuids(ibs, imgsetid_list):
+    r"""
+    Returns:
+        gids_list (list):  a list of list of gids in each imageset
+
+    RESTful:
+        Method: GET
+        URL:    /api/imageset/image/uuid/
+    """
+    gids_list = ibs.get_imageset_gids(imgsetid_list)
+    image_uuid_list = [
+        ibs.get_image_uuids(gid_list)
+        for gid_list in gids_list
+    ]
+    return image_uuid_list
+
+
+@register_ibs_method
 @accessor_decors.default_decorator
-@register_api('/api/imageset/gsgrids/', methods=['GET'])
+# @register_api('/api/imageset/gsgrids/', methods=['GET'])
 def get_imageset_gsgrids(ibs, imgsetid_list=None, gid_list=None):
     r"""
     Returns:
         list_ (list):  a list of imageset-image-relationship rowids for each encouterid
-
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/gsgrids/
     """
     # WEIRD FUNCTION FIXME
     assert imgsetid_list is not None or gid_list is not None, "Either imgsetid_list or gid_list must be None"
@@ -489,7 +570,7 @@ def get_imageset_gsgrids(ibs, imgsetid_list=None, gid_list=None):
 
 @register_ibs_method
 @accessor_decors.getter_1toM
-@register_api('/api/imageset/nids/', methods=['GET'])
+@register_api('/api/imageset/name/rowid/', methods=['GET'])
 def get_imageset_nids(ibs, imgsetid_list):
     r"""
     Returns:
@@ -500,7 +581,7 @@ def get_imageset_nids(ibs, imgsetid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/nids/
+        URL:    /api/imageset/name/rowid/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -508,13 +589,14 @@ def get_imageset_nids(ibs, imgsetid_list):
         >>> import ibeis
         >>> ibs = ibeis.opendb('testdb1')
         >>> ibs.delete_imagesets(ibs.get_valid_imgsetids())
-        >>> ibs.compute_occurrences()
+        >>> ibs.compute_occurrences(config={'use_gps': False, 'seconds_thresh': 600})
         >>> imgsetid_list = ibs.get_valid_imgsetids()
         >>> nids_list = ibs.get_imageset_nids(imgsetid_list)
         >>> result = nids_list
         >>> print(result)
         [[1, 2, 3], [4, 5, 6, 7]]
     """
+    # FIXME: SLOW
     aids_list = ibs.get_imageset_aids(imgsetid_list)
     nids_list = ibs.unflat_map(ibs.get_annot_name_rowids, aids_list)
     #nids_list_ = [[nid[0] for nid in nids if len(nid) > 0] for nids in nids_list]
@@ -528,6 +610,42 @@ def get_imageset_nids(ibs, imgsetid_list):
     #print('nids_list_ = %r' % (nids_list_,))
     #print('nids_list = %r' % (nids_list,))
     return nids_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1toM
+@register_api('/api/imageset/name/uuid/', methods=['GET'])
+def get_imageset_name_uuids(ibs, imgsetid_list):
+    r"""
+    Returns:
+        name_uuid_list (list):  a list of list of known name uuids in each imageset
+
+    CommandLine:
+        python -m ibeis.control.manual_imageset_funcs --test-get_imageset_name_uuids
+
+    RESTful:
+        Method: GET
+        URL:    /api/imageset/name/uuid/
+
+    Example:
+        >>> # ENABLE_DOCTEST
+        >>> from ibeis.control.manual_imageset_funcs import *  # NOQA
+        >>> import ibeis
+        >>> ibs = ibeis.opendb('testdb1')
+        >>> ibs.delete_imagesets(ibs.get_valid_imgsetids())
+        >>> ibs.compute_occurrences(config={'use_gps': False, 'seconds_thresh': 600})
+        >>> imgsetid_list = ibs.get_valid_imgsetids()
+        >>> nids_list = ibs.get_imageset_nids(imgsetid_list)
+        >>> result = nids_list
+        >>> print(result)
+        [[1, 2, 3], [4, 5, 6, 7]]
+    """
+    nids_list = ibs.get_imageset_nids(imgsetid_list)
+    name_uuid_list = [
+        ibs.get_name_uuids(nid_list)
+        for nid_list in nids_list
+    ]
+    return name_uuid_list
 
 
 @register_ibs_method
@@ -549,15 +667,11 @@ def get_imageset_uuid(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/configid/', methods=['GET'])
+# @register_api('/api/imageset/configid/', methods=['GET'])
 def get_imageset_configid(ibs, imgsetid_list):
     r"""
     Returns:
         list_ (list): config_rowid of each imgsetid in imgsetid_list
-
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/configid/
     """
     # FIXME: MAKE SQL-METHOD FOR NON-ROWID GETTERS
     config_rowid_list = ibs.db.get(const.IMAGESET_TABLE, ('config_rowid',), imgsetid_list, id_colname='imageset_rowid')
@@ -583,7 +697,25 @@ def get_imageset_text(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/imgsetids_from_text/', methods=['GET'])
+@register_api('/api/imageset/rowid/uuid/', methods=['GET'])
+def get_imageset_imgsetids_from_uuid(ibs, uuid_list):
+    r"""
+    Returns:
+        list_ (list): a list of imgsetids corresponding to each imageset imagesettext
+    #FIXME: make new naming scheme for non-primary-key-getters
+    get_imageset_imgsetids_from_text_from_text
+
+    RESTful:
+        Method: GET
+        URL:    /api/imageset/rowid/uuid/
+    """
+    imgsetid_list = ibs.db.get(const.IMAGESET_TABLE, ('imageset_rowid',), uuid_list, id_colname='imageset_uuid')
+    return imgsetid_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1to1
+@register_api('/api/imageset/rowid/text/', methods=['GET'])
 def get_imageset_imgsetids_from_text(ibs, imagesettext_list, ensure=True):
     r"""
     Returns:
@@ -593,7 +725,7 @@ def get_imageset_imgsetids_from_text(ibs, imagesettext_list, ensure=True):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/imgsetids_from_text/
+        URL:    /api/imageset/rowid/text/
     """
     if ensure:
         imgsetid_list = ibs.add_imagesets(imagesettext_list)
@@ -643,7 +775,7 @@ def delete_imagesets(ibs, imgsetid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/end_time_posix/', methods=['GET'])
+@register_api('/api/imageset/time/posix/end/', methods=['GET'])
 def get_imageset_end_time_posix(ibs, imageset_rowid_list):
     r"""
     imageset_end_time_posix_list <- imageset.imageset_end_time_posix[imageset_rowid_list]
@@ -663,7 +795,7 @@ def get_imageset_end_time_posix(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/end_time_posix/
+        URL:    /api/imageset/time/posix/end/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -682,7 +814,7 @@ def get_imageset_end_time_posix(ibs, imageset_rowid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/gps_lats/', methods=['GET'])
+@register_api('/api/imageset/gps/lat/', methods=['GET'], __api_plural_check__=False)
 def get_imageset_gps_lats(ibs, imageset_rowid_list):
     r"""
     imageset_gps_lat_list <- imageset.imageset_gps_lat[imageset_rowid_list]
@@ -702,7 +834,7 @@ def get_imageset_gps_lats(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/gps_lats/
+        URL:    /api/imageset/gps/lat/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -750,7 +882,7 @@ def update_imageset_info(ibs, imageset_rowid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/gps_lons/', methods=['GET'])
+@register_api('/api/imageset/gps/lon/', methods=['GET'], __api_plural_check__=False)
 def get_imageset_gps_lons(ibs, imageset_rowid_list):
     r"""
     imageset_gps_lon_list <- imageset.imageset_gps_lon[imageset_rowid_list]
@@ -770,7 +902,7 @@ def get_imageset_gps_lons(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/gps_lons/
+        URL:    /api/imageset/gps/lon/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -789,7 +921,7 @@ def get_imageset_gps_lons(ibs, imageset_rowid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/notes/', methods=['GET'])
+# @register_api('/api/imageset/note/', methods=['GET'])
 def get_imageset_notes(ibs, imageset_rowid_list):
     r"""
     imageset_note_list <- imageset.imageset_note[imageset_rowid_list]
@@ -806,10 +938,6 @@ def get_imageset_notes(ibs, imageset_rowid_list):
         Tgetter_table_column
         col = imageset_note
         tbl = imageset
-
-    RESTful:
-        Method: GET
-        URL:    /api/imageset/notes/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -828,7 +956,7 @@ def get_imageset_notes(ibs, imageset_rowid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/processed_flags/', methods=['GET'])
+@register_api('/api/imageset/processed/', methods=['GET'])
 def get_imageset_processed_flags(ibs, imageset_rowid_list):
     r"""
     imageset_processed_flag_list <- imageset.imageset_processed_flag[imageset_rowid_list]
@@ -848,7 +976,7 @@ def get_imageset_processed_flags(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/processed_flags/
+        URL:    /api/imageset/processed/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -867,7 +995,7 @@ def get_imageset_processed_flags(ibs, imageset_rowid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/shipped_flags/', methods=['GET'])
+@register_api('/api/imageset/shipped/', methods=['GET'])
 def get_imageset_shipped_flags(ibs, imageset_rowid_list):
     r"""
     imageset_shipped_flag_list <- imageset.imageset_shipped_flag[imageset_rowid_list]
@@ -887,7 +1015,7 @@ def get_imageset_shipped_flags(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/shipped_flags/
+        URL:    /api/imageset/shipped/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -906,7 +1034,7 @@ def get_imageset_shipped_flags(ibs, imageset_rowid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/imageset/start_time_posix/', methods=['GET'])
+@register_api('/api/imageset/time/posix/start/', methods=['GET'])
 def get_imageset_start_time_posix(ibs, imageset_rowid_list):
     r"""
     imageset_start_time_posix_list <- imageset.imageset_start_time_posix[imageset_rowid_list]
@@ -926,7 +1054,7 @@ def get_imageset_start_time_posix(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/start_time_posix/
+        URL:    /api/imageset/time/posix/start/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -983,7 +1111,7 @@ def get_imageset_duration(ibs, imageset_rowid_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/imageset/end_time_posix/', methods=['PUT'])
+@register_api('/api/imageset/time/posix/end/', methods=['PUT'])
 def set_imageset_end_time_posix(ibs, imageset_rowid_list, imageset_end_time_posix_list):
     r"""
     imageset_end_time_posix_list -> imageset.imageset_end_time_posix[imageset_rowid_list]
@@ -999,7 +1127,7 @@ def set_imageset_end_time_posix(ibs, imageset_rowid_list, imageset_end_time_posi
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/end_time_posix/
+        URL:    /api/imageset/time/posix/end/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_END_TIME_POSIX,)
@@ -1009,7 +1137,7 @@ def set_imageset_end_time_posix(ibs, imageset_rowid_list, imageset_end_time_posi
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/imageset/gps_lats/', methods=['PUT'])
+@register_api('/api/imageset/gps/lat/', methods=['PUT'], __api_plural_check__=False)
 def set_imageset_gps_lats(ibs, imageset_rowid_list, imageset_gps_lat_list):
     r"""
     imageset_gps_lat_list -> imageset.imageset_gps_lat[imageset_rowid_list]
@@ -1025,7 +1153,7 @@ def set_imageset_gps_lats(ibs, imageset_rowid_list, imageset_gps_lat_list):
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/gps_lats/
+        URL:    /api/imageset/gps/lat/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_GPS_LAT,)
@@ -1034,7 +1162,7 @@ def set_imageset_gps_lats(ibs, imageset_rowid_list, imageset_gps_lat_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/imageset/gps_lons/', methods=['PUT'])
+@register_api('/api/imageset/gps/lon/', methods=['PUT'], __api_plural_check__=False)
 def set_imageset_gps_lons(ibs, imageset_rowid_list, imageset_gps_lon_list):
     r"""
     imageset_gps_lon_list -> imageset.imageset_gps_lon[imageset_rowid_list]
@@ -1050,7 +1178,7 @@ def set_imageset_gps_lons(ibs, imageset_rowid_list, imageset_gps_lon_list):
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/gps_lons/
+        URL:    /api/imageset/gps/lon/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_GPS_LON,)
@@ -1059,7 +1187,7 @@ def set_imageset_gps_lons(ibs, imageset_rowid_list, imageset_gps_lon_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/imageset/notes/', methods=['PUT'])
+@register_api('/api/imageset/note/', methods=['PUT'])
 def set_imageset_notes(ibs, imageset_rowid_list, imageset_note_list):
     r"""
     imageset_note_list -> imageset.imageset_note[imageset_rowid_list]
@@ -1072,10 +1200,6 @@ def set_imageset_notes(ibs, imageset_rowid_list, imageset_note_list):
         Tsetter_native_column
         tbl = imageset
         col = imageset_note
-
-    RESTful:
-        Method: PUT
-        URL:    /api/imageset/notes/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_NOTE,)
@@ -1084,7 +1208,7 @@ def set_imageset_notes(ibs, imageset_rowid_list, imageset_note_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/imageset/processed_flags/', methods=['PUT'])
+@register_api('/api/imageset/processed/', methods=['PUT'])
 def set_imageset_processed_flags(ibs, imageset_rowid_list, imageset_processed_flag_list):
     r"""
     imageset_processed_flag_list -> imageset.imageset_processed_flag[imageset_rowid_list]
@@ -1100,7 +1224,7 @@ def set_imageset_processed_flags(ibs, imageset_rowid_list, imageset_processed_fl
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/processed_flags/
+        URL:    /api/imageset/processed/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_PROCESSED_FLAG,)
@@ -1110,7 +1234,7 @@ def set_imageset_processed_flags(ibs, imageset_rowid_list, imageset_processed_fl
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/imageset/shipped_flags/', methods=['PUT'])
+@register_api('/api/imageset/shipped/', methods=['PUT'])
 def set_imageset_shipped_flags(ibs, imageset_rowid_list, imageset_shipped_flag_list):
     r"""
     imageset_shipped_flag_list -> imageset.imageset_shipped_flag[imageset_rowid_list]
@@ -1126,7 +1250,7 @@ def set_imageset_shipped_flags(ibs, imageset_rowid_list, imageset_shipped_flag_l
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/shipped_flags/
+        URL:    /api/imageset/shipped/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_SHIPPED_FLAG,)
@@ -1137,7 +1261,7 @@ def set_imageset_shipped_flags(ibs, imageset_rowid_list, imageset_shipped_flag_l
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/imageset/start_time_posix/', methods=['PUT'])
+@register_api('/api/imageset/time/posix/start/', methods=['PUT'])
 def set_imageset_start_time_posix(ibs, imageset_rowid_list, imageset_start_time_posix_list):
     r"""
     imageset_start_time_posix_list -> imageset.imageset_start_time_posix[imageset_rowid_list]
@@ -1153,7 +1277,7 @@ def set_imageset_start_time_posix(ibs, imageset_rowid_list, imageset_start_time_
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/start_time_posix/
+        URL:    /api/imageset/time/posix/start/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_START_TIME_POSIX,)
@@ -1163,7 +1287,7 @@ def set_imageset_start_time_posix(ibs, imageset_rowid_list, imageset_start_time_
 
 @register_ibs_method
 #@accessor_decors.cache_getter(const.IMAGESET_TABLE, IMAGESET_SMART_WAYPOINT_ID)
-@register_api('/api/imageset/smart_waypoint_ids/', methods=['GET'])
+@register_api('/api/imageset/smart/waypoint/', methods=['GET'])
 def get_imageset_smart_waypoint_ids(ibs, imageset_rowid_list):
     r"""
     imageset_smart_waypoint_id_list <- imageset.imageset_smart_waypoint_id[imageset_rowid_list]
@@ -1183,7 +1307,7 @@ def get_imageset_smart_waypoint_ids(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/smart_waypoint_ids/
+        URL:    /api/imageset/smart/waypoint/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -1202,7 +1326,7 @@ def get_imageset_smart_waypoint_ids(ibs, imageset_rowid_list):
 
 @register_ibs_method
 #@accessor_decors.cache_getter(const.IMAGESET_TABLE, IMAGESET_SMART_XML_FNAME)
-@register_api('/api/imageset/smart_xml_fnames/', methods=['GET'])
+@register_api('/api/imageset/smart/xml/file/name/', methods=['GET'])
 def get_imageset_smart_xml_fnames(ibs, imageset_rowid_list):
     r"""
     imageset_smart_xml_fname_list <- imageset.imageset_smart_xml_fname[imageset_rowid_list]
@@ -1222,7 +1346,7 @@ def get_imageset_smart_xml_fnames(ibs, imageset_rowid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/imageset/smart_xml_fnames/
+        URL:    /api/imageset/smart/xml/file/name/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -1240,7 +1364,29 @@ def get_imageset_smart_xml_fnames(ibs, imageset_rowid_list):
 
 
 @register_ibs_method
-@register_api('/api/imageset/smart_waypoint_ids/', methods=['PUT'])
+#@accessor_decors.cache_getter(const.IMAGESET_TABLE, IMAGESET_SMART_XML_FNAME)
+@register_api('/api/imageset/smart/xml/file/content/', methods=['GET'])
+def get_imageset_smart_xml_contents(ibs, imageset_rowid_list):
+    from os.path import join, exists
+    imageset_smart_xml_fname_list = ibs.get_imageset_smart_xml_fnames(imageset_rowid_list)
+    content_list = []
+    smart_patrol_dir = ibs.get_smart_patrol_dir()
+    for imageset_smart_xml_fname in imageset_smart_xml_fname_list:
+        if imageset_smart_xml_fname is None:
+            content_list.append(None)
+        else:
+            imageset_smart_xml_fpath = join(smart_patrol_dir, imageset_smart_xml_fname)
+            if exists(imageset_smart_xml_fpath):
+                with open(imageset_smart_xml_fpath, 'r') as imageset_smart_xml:
+                    content = imageset_smart_xml.read()
+                    content_list.append(content)
+            else:
+                content_list.append(None)
+    return content_list
+
+
+@register_ibs_method
+@register_api('/api/imageset/smart/waypoint/', methods=['PUT'])
 def set_imageset_smart_waypoint_ids(ibs, imageset_rowid_list, imageset_smart_waypoint_id_list):
     r"""
     imageset_smart_waypoint_id_list -> imageset.imageset_smart_waypoint_id[imageset_rowid_list]
@@ -1256,7 +1402,7 @@ def set_imageset_smart_waypoint_ids(ibs, imageset_rowid_list, imageset_smart_way
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/smart_waypoint_ids/
+        URL:    /api/imageset/smart/waypoint/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_SMART_WAYPOINT_ID,)
@@ -1265,7 +1411,7 @@ def set_imageset_smart_waypoint_ids(ibs, imageset_rowid_list, imageset_smart_way
 
 
 @register_ibs_method
-@register_api('/api/imageset/smart_xml_fnames/', methods=['PUT'])
+@register_api('/api/imageset/smart/xml/file/name/', methods=['PUT'])
 def set_imageset_smart_xml_fnames(ibs, imageset_rowid_list, imageset_smart_xml_fname_list):
     r"""
     imageset_smart_xml_fname_list -> imageset.imageset_smart_xml_fname[imageset_rowid_list]
@@ -1281,7 +1427,7 @@ def set_imageset_smart_xml_fnames(ibs, imageset_rowid_list, imageset_smart_xml_f
 
     RESTful:
         Method: PUT
-        URL:    /api/imageset/smart_xml_fnames/
+        URL:    /api/imageset/smart/xml/fname/
     """
     id_iter = imageset_rowid_list
     colnames = (IMAGESET_SMART_XML_FNAME,)

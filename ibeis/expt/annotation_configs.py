@@ -6,7 +6,6 @@ Rename to annot_cfgdef
 """
 from __future__ import absolute_import, division, print_function, unicode_literals
 import utool as ut
-from ibeis.expt import cfghelpers
 import numpy as np  # NOQA
 print, rrr, profile = ut.inject2(__name__, '[aidcfg]')
 
@@ -23,6 +22,49 @@ ALIAS_KEYS = {
     'excluderef': 'exclude_reference',
 }
 
+
+INDEPENDENT_DEFAULTS_PARAM_INFO = [
+    ut.ParamInfo('reviewed', None, valid_values=[True, False, None]),
+    ut.ParamInfo('minqual', None, valid_values=[None, 'junk', 'poor', 'ok',
+                                                'good', 'excellent']),
+    ut.ParamInfo('multiple', None, valid_values=[True, False, None]),
+    ut.ParamInfo('species', None),
+    ut.ParamInfo('view', None),  # TODO: allow for lists
+    ut.ParamInfo('require_quality', None, valid_values=[True, False, None]),
+    ut.ParamInfo('require_viewpoint', None, valid_values=[True, False, None]),
+    ut.ParamInfo('is_exemplar', None, valid_values=[True, False, None]),
+    ut.ParamInfo('min_pername_global', None, type_=int, min_=0,
+                 help_='Keep annot if it has at least this many global names'),
+    ut.ParamInfo('max_pername_global', None, type_=int, min_=0,
+                 help_='Keep annot if it has at most this many global names'),
+    ut.ParamInfo('min_unixtime', None, type_=float, min_=0,
+                 help_='Remove anything before this timestamp'),
+    ut.ParamInfo('max_unixtime', None, type_=float, min_=0,
+                 help_='Remove anything after this timestamp'),
+    #ut.ParamInfo('view', None),
+]
+
+
+INTRAGROUP_DEFAULTS_PARAM_INFO = [
+    ut.ParamInfo('min_pername', None, type_=int, min_=0,
+                 help_='Keeps names with at least this number of aids within the group'),
+    ut.ParamInfo('max_pername', None, type_=int, min_=0,
+                 help_='Keeps names with at most this number of aids within the group'),
+]
+
+SAMPLE_DEFAULTS_PARAM_INFO = [
+    ut.ParamInfo('sample_per_name', None, type_=int, min_=0,
+                 help_='Take this many annots per name'),
+    ut.ParamInfo('sample_rule', 'random', valid_values=['random', 'mintime', 'maxtime', 'qual_and_view'],
+                 help_='Method of samping from names'),
+    ut.ParamInfo('sample_seed', 0, type_=int, none_ok=True,
+                 help_='Random seed for sampling from names'),
+]
+
+SUBINDEX_DEFAULTS_PARAM_INFO = [
+    ut.ParamInfo('index', None),
+]
+
 OTHER_DEFAULTS = {
     # forces a consistnet sample size across combinations
     'force_const_size'    : None,
@@ -37,18 +79,18 @@ OTHER_DEFAULTS = {
 # THese filters are orderless
 INDEPENDENT_DEFAULTS = {
     #'species'             : 'primary',  # specify the species
-    'species'             : None,
+    #'species'             : None,
     # Timedelta Params
     'require_timestamp'   : None,
     'contrib_contains'    : None,
     # Quality Params
-    'require_quality'     : None,  # if True unknown qualities are removed
+    #'require_quality'     : None,  # if True unknown qualities are removed
     #'minqual'             : 'poor',
     'minqual'             : None,
     'been_adjusted'       : None,  # HACK PARAM
     # Viewpoint params
-    'require_viewpoint'   : None,
-    'view'                : None,
+    #'require_viewpoint'   : None,
+    #'view'                : None,
     'view_ext'            : 0,      # num viewpoints to extend in dir1 and dir2
     'view_ext1'           : None,   # num viewpoints to extend in dir1
     'view_ext2'           : None,   # num viewpoints to extend in dir2
@@ -57,8 +99,9 @@ INDEPENDENT_DEFAULTS = {
     'min_numfeat'         : None,
     # minimum number of features detected by default config
     'max_numfeat'         : None,
+    'reviewed'            : None,
+    'multiple'            : None,
 }
-
 
 # HACK
 from ibeis import tag_funcs  # NOQA  #
@@ -67,6 +110,9 @@ filter_keys = ut.get_func_kwargs(tag_funcs.filterflags_general_tags)
 for key in filter_keys:
     INDEPENDENT_DEFAULTS[key] = None
 
+for pi in INDEPENDENT_DEFAULTS_PARAM_INFO:
+    INDEPENDENT_DEFAULTS[pi.varname] = pi.default
+
 
 INTRAGROUP_DEFAULTS = {
     # if True all annots must belong to the same imageset
@@ -74,30 +120,39 @@ INTRAGROUP_DEFAULTS = {
     'view_pername'        : None,  # formatted string filtering the viewpoints
     'min_timedelta'       : None,
     # minimum number of aids for each name in sample
-    'min_pername'         : None,
+    #'min_pername'         : None,
+    #'max_pername'         : None,
     'min_spacedelta'      : None,
     'min_spacetimedelta'  : None,
 }
+for pi in INTRAGROUP_DEFAULTS_PARAM_INFO:
+    INTRAGROUP_DEFAULTS[pi.varname] = pi.default
+
+# HACK
 INDEPENDENT_DEFAULTS.update(INTRAGROUP_DEFAULTS)  # hack
 
 SUBINDEX_DEFAULTS = {
     # Final indexing
     'shuffle'             : False,  # randomize order before indexing
-    'index'               : None,   # choose only a subset
+    #'index'               : None,   # choose only a subset
 }
+for pi in SUBINDEX_DEFAULTS_PARAM_INFO:
+    SUBINDEX_DEFAULTS[pi.varname] = pi.default
 
 SAMPLE_DEFAULTS = {
     'sample_size'         : None,
     'num_names'           : None,
     # Gets as close to sample size without removing other props
     # Per Name / Exemplar Params
-    'sample_per_name'     : None,  # Choos num_annots to sample from each name.
-    'sample_rule'         : 'random',
+    #'sample_per_name'     : None,  # Choos num_annots to sample from each name.
+    #'sample_rule'         : 'random',
     'sample_offset'       : None,  # UNUSED
     'occur_offset'        : None,  # UNUSED
     'name_offset'         : None,  # UNUSED
     'sample_occur'        : None,
 }
+for pi in SAMPLE_DEFAULTS_PARAM_INFO:
+    SAMPLE_DEFAULTS[pi.varname] = pi.default
 
 SAMPLE_REF_DEFAULTS = {
     # excludes any aids specified in a reference set (ie qaids)
@@ -169,7 +224,7 @@ def partition_acfg_list(acfg_list):
     _acfg_list = [compress_aidcfg(acfg) for acfg in acfg_list]
 
     flat_acfg_list = flatten_acfg_list(_acfg_list)
-    tup = cfghelpers.partition_varied_cfg_list(flat_acfg_list)
+    tup = ut.partition_varied_cfg_list(flat_acfg_list)
     flat_nonvaried_dict, flat_varied_acfg_list = tup
     nonvaried_dict = unflatten_acfgdict(flat_nonvaried_dict)
     varied_acfg_list = [unflatten_acfgdict(acfg)
@@ -177,27 +232,29 @@ def partition_acfg_list(acfg_list):
     return nonvaried_dict, varied_acfg_list
 
 
-def get_varied_acfg_labels(acfg_list, mainkey='_cfgname'):
+def get_varied_acfg_labels(acfg_list, mainkey='_cfgname', checkname=False):
     """
         >>> from ibeis.expt.annotation_configs import *  # NOQA
 
     """
     #print(ut.list_str(varied_acfg_list, nl=2))
     for acfg in acfg_list:
-        assert acfg['qcfg']['_cfgname'] == acfg['dcfg']['_cfgname'], (
+        assert acfg['qcfg'].get(mainkey, '') == acfg['dcfg'].get(mainkey, ''), (
             'should be the same for now')
-    cfgname_list = [acfg['qcfg']['_cfgname'] for acfg in acfg_list]
+    cfgname_list = [acfg['qcfg'].get(mainkey, '') for acfg in acfg_list]
+    if checkname and ut.allsame(cfgname_list):
+        cfgname_list = [None] * len(cfgname_list)
 
     # Hack to make common params between q and d appear the same
     _acfg_list = [compress_aidcfg(acfg) for acfg in acfg_list]
 
     flat_acfg_list = flatten_acfg_list(_acfg_list)
-    nonvaried_dict, varied_acfg_list = cfghelpers.partition_varied_cfg_list(
+    nonvaried_dict, varied_acfg_list = ut.partition_varied_cfg_list(
         flat_acfg_list)
 
     SUPER_HACK = True
     if SUPER_HACK:
-        # SUPER HACK, recompress remake the varied list after knownig what is varied
+        # SUPER HACK, recompress remake the varied list after knowing what is varied
         _varied_keys = list(set(ut.flatten(
             [list(ut.flatten(
                 [list(x.keys())
@@ -208,14 +265,14 @@ def get_varied_acfg_labels(acfg_list, mainkey='_cfgname'):
             compress_aidcfg(acfg, force_noncommon=_varied_keys)
             for acfg in acfg_list]
         flat_acfg_list = flatten_acfg_list(_acfg_list)
-        nonvaried_dict, varied_acfg_list = cfghelpers.partition_varied_cfg_list(
+        nonvaried_dict, varied_acfg_list = ut.partition_varied_cfg_list(
             flat_acfg_list)
 
     shortened_cfg_list = [
         #{shorten_to_alias_labels(key): val for key, val in _dict.items()}
         ut.map_dict_keys(shorten_to_alias_labels, _dict)
         for _dict in varied_acfg_list]
-    nonlbl_keys = cfghelpers.INTERNAL_CFGKEYS
+    nonlbl_keys = ut.INTERNAL_CFGKEYS
     nonlbl_keys = [prefix +  key for key in nonlbl_keys
                    for prefix in ['', 'q', 'd']]
     # hack for sorting by q/d stuff first
@@ -226,10 +283,13 @@ def get_varied_acfg_labels(acfg_list, mainkey='_cfgname'):
                      for k in keys]
         return ut.sortedby(keys, sortorder)[::-1]
 
-    shortened_lbl_list = [
-        cfghelpers.get_cfg_lbl(cfg, name, nonlbl_keys, key_order=get_key_order(cfg))
+    cfglbl_list = [
+        ut.get_cfg_lbl(cfg, name, nonlbl_keys, key_order=get_key_order(cfg))
         for cfg, name in zip(shortened_cfg_list, cfgname_list)]
-    return shortened_lbl_list
+
+    if checkname:
+        cfglbl_list = [x.lstrip(':') for x in cfglbl_list]
+    return cfglbl_list
 
 
 def shorten_to_alias_labels(key):
@@ -241,6 +301,9 @@ def shorten_to_alias_labels(key):
 
 
 def flatten_acfg_list(acfg_list):
+    """
+    Returns a new config where subconfig params are prefixed by subconfig keys
+    """
     flat_acfg_list = []
     for acfg in acfg_list:
         flat_dict = {
@@ -267,7 +330,7 @@ def compress_acfg_list_for_printing(acfg_list):
         >>> print(result)
     """
     flat_acfg_list = flatten_acfg_list(acfg_list)
-    tup = cfghelpers.partition_varied_cfg_list(flat_acfg_list)
+    tup = ut.partition_varied_cfg_list(flat_acfg_list)
     nonvaried_dict, varied_acfg_list = tup
     nonvaried_compressed_dict = compress_aidcfg(
         unflatten_acfgdict(nonvaried_dict), filter_nones=True)
@@ -418,7 +481,7 @@ __controlled_aidcfg = ut.augdict(__baseline_aidcfg, {
 
 single_default = __default_aidcfg
 
-exclude_vars = list(vars().keys())   # this line is before tests
+exclude_vars = list(locals().keys())   # this line is before tests
 exclude_vars.append('exclude_vars')
 
 default = {
@@ -746,7 +809,7 @@ viewdiff_td1h = apply_timecontrol(viewdiff, '1h')
 # THIS IS A GOOD START
 # NEED TO DO THIS CONFIG AND THEN SWITCH DCFG TO USE primary1
 
-include_vars = list(vars().keys())  # this line is after tests
+include_vars = list(locals().keys())  # this line is after tests
 
 # List of all valid tests
 TEST_NAMES = set(include_vars) - set(exclude_vars)

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function
-import cStringIO as StringIO
+from six.moves import cStringIO as StringIO
+# import cStringIO as StringIO
 import flask
 import random
 from ibeis.constants import TAU
@@ -18,6 +19,7 @@ import numpy as np
 
 DEFAULT_WEB_API_PORT = ut.get_argval('--port', type_=int, default=5000)
 TARGET_WIDTH = 1200.0
+TARGET_HEIGHT = 800.0
 PAGE_SIZE = 500
 VALID_TURK_MODES = [
     ('turk_viewpoint', 'Viewpoint'),
@@ -70,15 +72,17 @@ def resize_via_web_parameters(image):
     return _resize(image, t_width=w_pix, t_height=h_pix)
 
 
-def embed_image_html(imgBGR, target_width=TARGET_WIDTH):
+def embed_image_html(imgBGR, target_width=TARGET_WIDTH, target_height=TARGET_HEIGHT):
     """ Creates an image embedded in HTML base64 format. """
     import cv2
     from PIL import Image
     if target_width is not None:
-        imgBGR = _resize(imgBGR, target_width)
+        imgBGR = _resize(imgBGR, t_width=target_width)
+    elif target_width is not None:
+        imgBGR = _resize(imgBGR, t_height=target_height)
     imgRGB = cv2.cvtColor(imgBGR, cv2.COLOR_BGR2RGB)
     pil_img = Image.fromarray(imgRGB)
-    string_buf = StringIO.StringIO()
+    string_buf = StringIO()
     pil_img.save(string_buf, format='jpeg')
     data = string_buf.getvalue().encode('base64').replace('\n', '')
     return 'data:image/jpeg;base64,' + data
@@ -103,6 +107,8 @@ def template(template_directory=None, template_filename=None, **kwargs):
         'URL':    flask.request.url,
         'REFER_SRC_STR':  flask.request.url.replace(flask.request.url_root, ''),
         '__wrapper__' : True,
+        '__wrapper_header__' : True,
+        '__wrapper_footer__' : True,
     }
     global_args['REFER_SRC_ENCODED'] = encode_refer_url(global_args['REFER_SRC_STR'])
     if 'refer' in flask.request.args.keys():
@@ -155,7 +161,7 @@ def send_csv_file(string, filename):
     return response
 
 
-def get_turk_annot_args(is_reviewed_func):
+def get_turk_annot_args(is_reviewed_func, speed_hack=False):
     """
     Helper to return aids in an imageset or a group review
     """
@@ -173,8 +179,13 @@ def get_turk_annot_args(is_reviewed_func):
 
     group_review_flag = src_ag is not None and dst_ag is not None
     if not group_review_flag:
-        gid_list = ibs.get_valid_gids(imgsetid=imgsetid)
-        aid_list = ut.flatten(ibs.get_image_aids(gid_list))
+        print('NOT GROUP_REVIEW')
+        if speed_hack:
+            with ut.Timer():
+                aid_list = ibs.get_valid_aids()
+        else:
+            gid_list = ibs.get_valid_gids(imgsetid=imgsetid)
+            aid_list = ut.flatten(ibs.get_image_aids(gid_list))
         reviewed_list = is_reviewed_func(ibs, aid_list)
     else:
         src_gar_rowid_list = ibs.get_annotgroup_gar_rowids(src_ag)
@@ -252,6 +263,11 @@ def default_species(ibs):
 def imageset_image_processed(ibs, gid_list):
     images_reviewed = [ reviewed == 1 for reviewed in ibs.get_image_reviewed(gid_list) ]
     return images_reviewed
+
+
+def imageset_annot_processed(ibs, aid_list):
+    annots_reviewed = [ reviewed == 1 for reviewed in ibs.get_annot_reviewed(aid_list) ]
+    return annots_reviewed
 
 
 def imageset_annot_viewpoint_processed(ibs, aid_list):
@@ -358,21 +374,31 @@ def convert_nmea_to_json(nmea_str, filename, GMT_OFFSET=0):
 
 
 def _resize(image, t_width=None, t_height=None):
-    import cv2
-    print('RESIZING WITH t_width = %r and t_height = %r' % (t_width, t_height, ))
-    height, width = image.shape[:2]
-    if t_width is None and t_height is None:
-        return image
-    elif t_width is not None and t_height is not None:
-        pass
-    elif t_width is None:
-        t_width = (width / height) * float(t_height)
-    elif t_height is None:
-        t_height = (height / width) * float(t_width)
-    t_width, t_height = float(t_width), float(t_height)
-    t_width, t_height = int(np.around(t_width)), int(np.around(t_height))
-    assert t_width > 0 and t_height > 0, 'target size too small'
-    assert t_width <= width * 100 and t_height <= height * 100, 'target size too large (capped at 10,000%)'
-    # interpolation = cv2.INTER_LANCZOS4
-    interpolation = cv2.INTER_LINEAR
-    return cv2.resize(image, (t_width, t_height), interpolation=interpolation)
+    """
+    TODO:
+        # use vtool instead
+    """
+    if False:
+        import vtool as vt
+        maxdims = (int(round(t_width)), int(round(t_height)))
+        interpolation = 'linear'
+        return vt.resize_to_maxdims(image, maxdims, interpolation)
+    else:
+        import cv2
+        print('RESIZING WITH t_width = %r and t_height = %r' % (t_width, t_height, ))
+        height, width = image.shape[:2]
+        if t_width is None and t_height is None:
+            return image
+        elif t_width is not None and t_height is not None:
+            pass
+        elif t_width is None:
+            t_width = (width / height) * float(t_height)
+        elif t_height is None:
+            t_height = (height / width) * float(t_width)
+        t_width, t_height = float(t_width), float(t_height)
+        t_width, t_height = int(np.around(t_width)), int(np.around(t_height))
+        assert t_width > 0 and t_height > 0, 'target size too small'
+        assert t_width <= width * 100 and t_height <= height * 100, 'target size too large (capped at 10,000%)'
+        # interpolation = cv2.INTER_LANCZOS4
+        interpolation = cv2.INTER_LINEAR
+        return cv2.resize(image, (t_width, t_height), interpolation=interpolation)

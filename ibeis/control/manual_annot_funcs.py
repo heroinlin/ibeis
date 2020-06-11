@@ -73,14 +73,9 @@ def _get_all_aids(ibs):
 
 
 @register_ibs_method
-@register_api('/api/annot/numations/', methods=['GET'])
 def get_num_annotations(ibs, **kwargs):
     r"""
     Number of valid annotations
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/numations/
     """
     aid_list = ibs.get_valid_aids(**kwargs)
     return len(aid_list)
@@ -132,34 +127,28 @@ def get_valid_aids(ibs, imgsetid=None, include_only_gid_list=None,
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
-        >>> from ibeis import constants as const
-        >>> # build test data
         >>> ibs = ibeis.opendb('testdb1')
+        >>> ut.exec_funckw(get_valid_aids, globals())
         >>> imgsetid = 1
-        >>> ibs.delete_all_imagesets()
-        >>> ibs.compute_occurrences()
-        >>> include_only_gid_list = None
         >>> yaw = 'no-filter'
-        >>> is_exemplar = None
-        >>> species = const.TEST_SPECIES.ZEB_PLAIN
+        >>> species = ibs.const.TEST_SPECIES.ZEB_PLAIN
         >>> is_known = False
-        >>> # execute function
-        >>> aid_list = get_valid_aids(ibs, imgsetid, include_only_gid_list, yaw, is_exemplar, species, is_known)
-        >>> ut.assert_eq(ibs.get_annot_names(aid_list), [const.UNKNOWN] * 2, 'bad name')
+        >>> ibs.delete_all_imagesets()
+        >>> ibs.compute_occurrences(config={'use_gps': False, 'seconds_thresh': 600})
+        >>> aid_list = get_valid_aids(ibs, imgsetid=imgsetid, species=species, is_known=is_known)
+        >>> ut.assert_eq(ibs.get_annot_names(aid_list), [ibs.const.UNKNOWN] * 2, 'bad name')
         >>> ut.assert_eq(ibs.get_annot_species(aid_list), [species] * 2, 'bad species')
         >>> ut.assert_eq(ibs.get_annot_exemplar_flags(aid_list), [False] * 2, 'bad exemplar')
-        >>> # verify results
         >>> result = str(aid_list)
         >>> print(result)
+
         [1, 4]
 
     Example1:
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
-        >>> # build test data
         >>> ibs = ibeis.opendb('testdb1')
-        >>> # execute function
         >>> aid_list1 = get_valid_aids(ibs, is_exemplar=True)
         >>> aid_list2 = get_valid_aids(ibs, is_exemplar=False)
         >>> intersect_aids = set(aid_list1).intersection(aid_list2)
@@ -221,8 +210,8 @@ def get_valid_aids(ibs, imgsetid=None, include_only_gid_list=None,
 
 
 @register_ibs_method
-@register_api('/api/annot/<aid>/', methods=['GET'])
-def annotation_src_api(aid=None):
+@register_api('/api/annot/<rowid>/', methods=['GET'])
+def annotation_src_api(rowid=None):
     r"""
     Returns the base64 encoded image of annotation <aid>
 
@@ -230,7 +219,7 @@ def annotation_src_api(aid=None):
         Method: GET
         URL:    /api/annot/<aid>/
     """
-    return routes_ajax.annotation_src(aid)
+    return routes_ajax.annotation_src(rowid)
 
 
 def filter_annotation_set(ibs, aid_list, include_only_gid_list=None,
@@ -304,6 +293,10 @@ def add_annots(ibs, gid_list, bbox_list=None, theta_list=None,
                 prevent_visual_duplicates=True, skip_cleaning=False, **kwargs):
     r"""
     Adds an annotation to images
+
+    # TODO:
+        remove annot_visual_uuid_list and annot_semantic_uuid_list
+        They are always infered
 
     Args:
         gid_list                 (list): image rowids to add annotation to
@@ -423,7 +416,6 @@ def add_annots(ibs, gid_list, bbox_list=None, theta_list=None,
         [14, 15]
     """
     #ut.embed()
-    from ibeis.algo.preproc import preproc_annot
     from vtool import geometry
     if ut.VERBOSE:
         print('[ibs] adding annotations')
@@ -495,17 +487,20 @@ def add_annots(ibs, gid_list, bbox_list=None, theta_list=None,
     if annot_uuid_list is None:
         annot_uuid_list = [uuid.uuid4() for _ in range(len(gid_list))]
 
+    # FIXME
     # Careful this code is very fragile. It might go out of sync
     # with the updating of the determenistic uuids. Find a way to
     # integrate both pieces of code without too much reundancy.
     # Make sure these tuples are constructed correctly
     if annot_visual_uuid_list is None:
         visual_infotup = (image_uuid_list, vert_list, theta_list)
-        annot_visual_uuid_list = preproc_annot.make_annot_visual_uuid(visual_infotup)
+        assert len(visual_infotup) == 3, 'len=%r' % (len(visual_infotup),)
+        annot_visual_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*visual_infotup)]
     if annot_semantic_uuid_list is None:
         semantic_infotup = (image_uuid_list, vert_list, theta_list, yaw_list,
                             name_list, species_list)
-        annot_semantic_uuid_list = preproc_annot.make_annot_semantic_uuid(semantic_infotup)
+        assert len(semantic_infotup) == 6, 'len=%r' % (len(semantic_infotup),)
+        annot_semantic_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*semantic_infotup)]
 
     # Define arguments to insert
     colnames = ('annot_uuid', 'image_rowid', 'annot_xtl', 'annot_ytl',
@@ -537,26 +532,24 @@ def add_annots(ibs, gid_list, bbox_list=None, theta_list=None,
     #ibs.update_annot_visual_uuids(aid_list)
 
     # Invalidate image thumbnails, quiet_delete_thumbs causes no output on deletion from ut
-    ibs.delete_image_thumbs(gid_list, quiet=quiet_delete_thumbs)
+    config2_ = {'thumbsize': 221}
+    ibs.delete_image_thumbs(gid_list, quiet=quiet_delete_thumbs, **config2_)
     return aid_list
 
 
 @register_ibs_method
-@register_api('/api/annot/rows/', methods=['GET'])
+# @register_api('/api/annot/rows/', methods=['GET'])
 def get_annot_rows(ibs, aid_list):
     r"""
     Auto-docstr for 'get_annot_rows'
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/rows/
     """
     colnames = ('annot_uuid', 'image_rowid', 'annot_xtl', 'annot_ytl',
                 'annot_width', 'annot_height', 'annot_theta', 'annot_num_verts',
                 'annot_verts', ANNOT_YAW, 'annot_detect_confidence',
                 'annot_note', 'name_rowid', 'species_rowid',
                 'annot_visual_uuid', 'annot_semantic_uuid')
-    rows_list = ibs.db.get(const.ANNOTATION_TABLE, colnames, aid_list, unpack_scalars=False)
+    rows_list = ibs.db.get(const.ANNOTATION_TABLE, colnames, aid_list,
+                           unpack_scalars=False)
     return rows_list
 
 
@@ -567,7 +560,7 @@ def get_annot_rows(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.deleter
-@register_api('/api/annot/nids/', methods=['DELETE'])
+@register_api('/api/annot/name/rowid/', methods=['DELETE'])
 def delete_annot_nids(ibs, aid_list):
     r"""
     Remove name assocation from the list of input aids.
@@ -575,7 +568,7 @@ def delete_annot_nids(ibs, aid_list):
 
     RESTful:
         Method: DELETE
-        URL:    /api/annot/nids/
+        URL:    /api/annot/name/rowid/
     """
     # FIXME: This should be implicit by setting the anotation name to the
     # unknown name
@@ -585,14 +578,14 @@ def delete_annot_nids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.deleter
-@register_api('/api/annot/speciesids/', methods=['DELETE'])
+@register_api('/api/annot/species/rowid/', methods=['DELETE'], __api_plural_check__=False)
 def delete_annot_speciesids(ibs, aid_list):
     r"""
     Deletes nids of a list of annotations
 
     RESTful:
         Method: DELETE
-        URL:    /api/annot/speciesids/
+        URL:    /api/annot/species/rowid/
     """
     # FIXME: This should be implicit by setting the anotation name to the
     # unknown species
@@ -630,6 +623,7 @@ def delete_annots(ibs, aid_list):
     Example:
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
+        >>> from os.path import exists
         >>> import ibeis
         >>> ibs = ibeis.opendb(defaultdb='testdb1')
         >>> ibs.delete_empty_nids()
@@ -640,18 +634,23 @@ def delete_annots(ibs, aid_list):
         >>> nid_list = [nid] * num_add
         >>> bbox_list = [(int(w * .1), int(h * .6), int(w * .5), int(h *  .3))
         ...              for (w, h) in ibs.get_image_sizes(gid_list)]
-        >>> new_aid_list = ibs.add_annots(gid_list, bbox_list=bbox_list, nid_list=nid_list)
+        >>> new_aid_list = ibs.add_annots(gid_list, bbox_list=bbox_list,
+        >>>                               nid_list=nid_list)
         >>> ibs.get_annot_nids(new_aid_list)
         >>> ut.assert_lists_eq(ibs.get_annot_nids(new_aid_list), nid_list)
         >>> assert ibs.get_name_aids(nid) == new_aid_list, 'annots should all have same name'
         >>> assert new_aid_list == ibs.get_name_aids(nid), 'inverse name mapping should work'
-        >>> before_gids = ibs.get_image_aids(gid_list)
-        >>> print('BEFORE gids: ' + str(before_gids))
+        >>> #thumpaths = ibs.get_image_thumbpath(gid_list, ensure_paths=True, **{'thumbsize': 221})
+        >>> #assert any(ut.lmap(exists, thumpaths)), 'thumbs should be there'
+        >>> before_aids = ibs.get_image_aids(gid_list)
+        >>> print('BEFORE gids: ' + str(before_aids))
         >>> result = ibs.delete_annots(new_aid_list)
         >>> assert ibs.get_name_aids(nid) == [], 'annots should be removed'
-        >>> after_gids = ibs.get_image_aids(gid_list)
-        >>> assert after_gids != before_gids, 'the invalidators must have bugs'
-        >>> print('AFTER gids: ' + str(after_gids))
+        >>> after_aids = ibs.get_image_aids(gid_list)
+        >>> #thumpaths = ibs.get_image_thumbpath(gid_list, ensure_paths=False, **{'thumbsize': 221})
+        >>> #assert not any(ut.lmap(exists, thumpaths)), 'thumbs should be gone'
+        >>> assert after_aids != before_aids, 'the invalidators must have bugs'
+        >>> print('AFTER gids: ' + str(after_aids))
         >>> valid_aids = ibs.get_valid_aids()
         >>> assert  [aid not in valid_aids for aid in new_aid_list], 'should no longer be valid aids'
         >>> print(result)
@@ -660,14 +659,35 @@ def delete_annots(ibs, aid_list):
     """
     if ut.VERBOSE:
         print('[ibs] deleting %d annotations' % len(aid_list))
+    # FIXME: Need to reliabely delete thumbnails
+    # config2_ = {'draw_annots': True, 'thumbsize': 221}
+    # MEGA HACK FOR QT
+    ibs.delete_annot_imgthumbs(aid_list)
     # Delete chips and features first
     #ibs.delete_annot_relations(aid_list)
-    # image thumbs are deleted in here too, this needs to be fixed
     ibs.delete_annot_chips(aid_list)
     ibs.depc_annot.delete_root(aid_list)
     # TODO:
     # delete parent rowid column if exists in annot table
     return ibs.db.delete_rowids(const.ANNOTATION_TABLE, aid_list)
+
+
+@register_ibs_method
+@accessor_decors.deleter
+def delete_annot_imgthumbs(ibs, aid_list):
+    # Less hacky
+    gid_list_ = ibs.get_annot_gids(aid_list)
+    table_config_filter = {
+        'thumbnails': {
+            'draw_annots': True,
+        }
+    }
+    ibs.depc_image.delete_root(gid_list_, table_config_filter)
+
+    # MEGA HACK FOR QT
+    config2_ = {'thumbsize': 221}
+    ibs.delete_image_thumbs(gid_list_, **config2_)
+    # ibs.delete_image_thumbs(gid_list_)
 
 
 # ==========
@@ -677,7 +697,7 @@ def delete_annots(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/aids_from_semantic_uuid/', methods=['GET'])
+# @register_api('/api/annot/aids/uuid/semantic/', methods=['GET'])
 def get_annot_aids_from_semantic_uuid(ibs, semantic_uuid_list):
     r"""
     Args:
@@ -685,11 +705,6 @@ def get_annot_aids_from_semantic_uuid(ibs, semantic_uuid_list):
 
     Returns:
         list: annot rowids
-
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/aids_from_semantic_uuid/
     """
     aids_list = ibs.db.get(const.ANNOTATION_TABLE, (ANNOT_ROWID,),
                            semantic_uuid_list, id_colname=ANNOT_SEMANTIC_UUID)
@@ -698,7 +713,7 @@ def get_annot_aids_from_semantic_uuid(ibs, semantic_uuid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/aids_from_uuid/', methods=['GET'])
+@register_api('/api/annot/rowid/uuid/', methods=['GET'])
 def get_annot_aids_from_uuid(ibs, uuid_list):
     r"""
     Returns:
@@ -706,7 +721,7 @@ def get_annot_aids_from_uuid(ibs, uuid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/aids_from_uuid/
+        URL:    /api/annot/rowid/uuid/
     """
     # FIXME: MAKE SQL-METHOD FOR NON-ROWID GETTERS
     aids_list = ibs.db.get(const.ANNOTATION_TABLE, (ANNOT_ROWID,), uuid_list,
@@ -716,15 +731,11 @@ def get_annot_aids_from_uuid(ibs, uuid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/missing_uuid/', methods=['GET'])
+# @register_api('/api/annot/uuid/missing/', methods=['GET'])
 def get_annot_missing_uuid(ibs, uuid_list):
     r"""
     Returns:
         list_ (list): a list of missing annot uuids
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/missing_uuid/
     """
     aid_list = ibs.get_annot_aids_from_uuid(uuid_list)
     zipped = zip(aid_list, uuid_list)
@@ -734,7 +745,7 @@ def get_annot_missing_uuid(ibs, uuid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/aids_from_visual_uuid/', methods=['GET'])
+# @register_api('/api/annot/aids/uuid/visual/', methods=['GET'])
 def get_annot_aids_from_visual_uuid(ibs, visual_uuid_list):
     r"""
     Args:
@@ -742,11 +753,6 @@ def get_annot_aids_from_visual_uuid(ibs, visual_uuid_list):
 
     Returns:
         list: annot rowids
-
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/aids_from_visual_uuid/
     """
     aids_list = ibs.db.get(const.ANNOTATION_TABLE, (ANNOT_ROWID,),
                            visual_uuid_list, id_colname=ANNOT_VISUAL_UUID)
@@ -758,7 +764,7 @@ get_annot_rowids_from_visual_uuid = get_annot_aids_from_visual_uuid
 @register_ibs_method
 @ut.accepts_numpy
 @accessor_decors.getter_1toM
-@register_api('/api/annot/bboxes/', methods=['GET'])
+@register_api('/api/annot/bbox/', methods=['GET'])
 def get_annot_bboxes(ibs, aid_list):
     r"""
     Returns:
@@ -766,7 +772,7 @@ def get_annot_bboxes(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/bboxes/
+        URL:    /api/annot/bbox/
     """
     colnames = ('annot_xtl', 'annot_ytl', 'annot_width', 'annot_height',)
     bbox_list = ibs.db.get(const.ANNOTATION_TABLE, colnames, aid_list)
@@ -774,17 +780,13 @@ def get_annot_bboxes(ibs, aid_list):
 
 
 @register_ibs_method
-@register_api('/api/annot/class_labels/', methods=['GET'])
+# @register_api('/api/annot/labels/', methods=['GET'])
 def get_annot_class_labels(ibs, aid_list):
     r"""
     DEPRICATE?
 
     Returns:
         list of tuples: identifying animal name and view
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/class_labels/
     """
     name_list = ibs.get_annot_name_rowids(aid_list)
     # TODO: use yaw?
@@ -795,7 +797,7 @@ def get_annot_class_labels(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/detect_confidence/', methods=['GET'])
+@register_api('/api/annot/detect/confidence/', methods=['GET'])
 def get_annot_detect_confidence(ibs, aid_list):
     r"""
     Returns:
@@ -803,7 +805,7 @@ def get_annot_detect_confidence(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/detect_confidence/
+        URL:    /api/annot/detect/confidence/
     """
     annot_detect_confidence_list = ibs.db.get(const.ANNOTATION_TABLE,
                                               ('annot_detect_confidence',),
@@ -813,7 +815,7 @@ def get_annot_detect_confidence(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/exemplar_flags/', methods=['GET'])
+@register_api('/api/annot/exemplar/', methods=['GET'])
 def get_annot_exemplar_flags(ibs, aid_list):
     r"""
     returns if an annotation is an exemplar
@@ -830,18 +832,15 @@ def get_annot_exemplar_flags(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/exemplar_flags/
+        URL:    /api/annot/exemplar/
 
     Example:
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
-        >>> # build test data
         >>> ibs = ibeis.opendb('testdb1')
         >>> aid_list = ibs.get_valid_aids()
-        >>> # execute function
         >>> gid_list = get_annot_exemplar_flags(ibs, aid_list)
-        >>> # verify results
         >>> result = str(gid_list)
         >>> print(result)
     """
@@ -854,7 +853,7 @@ def get_annot_exemplar_flags(ibs, aid_list):
 @ut.accepts_numpy
 @accessor_decors.getter_1to1
 #@cache_getter(const.ANNOTATION_TABLE, 'image_rowid')
-@register_api('/api/annot/gids/', methods=['GET'])
+@register_api('/api/annot/image/rowid/', methods=['GET'])
 def get_annot_gids(ibs, aid_list):
     r"""
     Get parent image rowids of annotations
@@ -867,7 +866,7 @@ def get_annot_gids(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/gids/
+        URL:    /api/annot/image/rowid/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -891,7 +890,7 @@ def get_annot_image_rowids(ibs, aid_list):
 @ut.accepts_numpy
 @accessor_decors.getter_1to1
 #@cache_getter(const.ANNOTATION_TABLE, 'image_rowid')
-@register_api('/api/annot/imgsetids/', methods=['GET'])
+@register_api('/api/annot/imageset/rowid/', methods=['GET'])
 def get_annot_imgsetids(ibs, aid_list):
     r"""
     Get parent image rowids of annotations
@@ -904,7 +903,7 @@ def get_annot_imgsetids(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/imgsetids/
+        URL:    /api/annot/imageset/rowid/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -921,15 +920,36 @@ def get_annot_imgsetids(ibs, aid_list):
 
 
 @register_ibs_method
-@accessor_decors.getter_1toM
-@register_api('/api/annot/gar_rowids/', methods=['GET'])
-def get_annot_gar_rowids(ibs, aid_list):
+@ut.accepts_numpy
+@accessor_decors.getter_1to1
+#@cache_getter(const.ANNOTATION_TABLE, 'image_rowid')
+@register_api('/api/annot/imageset/uuid/', methods=['GET'])
+def get_annot_imgset_uuids(ibs, aid_list):
     r"""
-    Auto-docstr for 'get_annot_gar_rowids'
+    Get parent image rowids of annotations
+
+    Args:
+        aid_list (list):
+
+    Returns:
+        imgset_uuid_list (list):  imageset uuids
 
     RESTful:
         Method: GET
-        URL:    /api/annot/gar_rowids/
+        URL:    /api/annot/imageset/uuid/
+
+    """
+    imgsetids_list = ibs.get_annot_imgsetids(aid_list)
+    imgset_uuid_list = ibs.get_imageset_uuid(imgsetids_list)
+    return imgset_uuid_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1toM
+# @register_api('/api/annot/gar/rowid/', methods=['GET'])
+def get_annot_gar_rowids(ibs, aid_list):
+    r"""
+    Auto-docstr for 'get_annot_gar_rowids'
     """
     colnames = (GAR_ROWID,)
     gar_rowid_list = ibs.db.get(const.GA_RELATION_TABLE, colnames, aid_list,
@@ -939,14 +959,11 @@ def get_annot_gar_rowids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1toM
-@register_api('/api/annot/otherimage_aids/', methods=['GET'])
+# @register_api('/api/annot/aids/otherimage/', methods=['GET'])
 def get_annot_otherimage_aids(ibs, aid_list, daid_list=None):
     r"""
     Auto-docstr for 'get_annot_otherimage_aids'
 
-    RESTful:
-        Method: GET
-        URL:    /api/annot/otherimage_aids/
     """
     gid_list = ibs.get_annot_gids(aid_list)
     if daid_list is None:
@@ -966,7 +983,7 @@ def get_annot_otherimage_aids(ibs, aid_list, daid_list=None):
 
 @register_ibs_method
 @accessor_decors.getter_1toM
-@register_api('/api/annot/contact_aids/', methods=['GET'])
+# @register_api('/api/annot/aids/contact/', methods=['GET'])
 def get_annot_contact_aids(ibs, aid_list, daid_list=None, check_isect=False):
     r"""
     Returns the other aids that appear in the same image that this
@@ -979,20 +996,13 @@ def get_annot_contact_aids(ibs, aid_list, daid_list=None, check_isect=False):
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_contact_aids;1
 
-    RESTful:
-        Method: GET
-        URL:    /api/annot/contact_aids/
-
     Example:
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
-        >>> # build test data
         >>> ibs = ibeis.opendb('testdb1')
         >>> aid_list = ibs.get_valid_aids()
-        >>> # execute function
         >>> contact_aids = ibs.get_annot_contact_aids(aid_list)
-        >>> # verify results
         >>> contact_gids = ibs.unflat_map(ibs.get_annot_gids, contact_aids)
         >>> gid_list = ibs.get_annot_gids(aid_list)
         >>> for gids, gid, aids, aid in zip(contact_gids, gid_list, contact_aids, aid_list):
@@ -1004,12 +1014,9 @@ def get_annot_contact_aids(ibs, aid_list, daid_list=None, check_isect=False):
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
-        >>> # build test data
         >>> ibs = ibeis.opendb('testdb2')
         >>> aid_list = ibs.get_valid_aids()
-        >>> # execute function
         >>> contact_aids = ibs.get_annot_contact_aids(aid_list)
-        >>> # verify results
         >>> contact_gids = ibs.unflat_map(ibs.get_annot_gids, contact_aids)
         >>> gid_list = ibs.get_annot_gids(aid_list)
         >>> print('contact_aids = %r' % (contact_aids,))
@@ -1044,14 +1051,9 @@ def get_annot_contact_aids(ibs, aid_list, daid_list=None, check_isect=False):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/num_contact_aids/', methods=['GET'])
 def get_annot_num_contact_aids(ibs, aid_list):
     r"""
     Auto-docstr for 'get_annot_num_contact_aids'
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/num_contact_aids/
     """
     nOther_aids_list = list(map(len, ibs.get_annot_contact_aids(aid_list)))
     return nOther_aids_list
@@ -1059,7 +1061,6 @@ def get_annot_num_contact_aids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1toM
-@register_api('/api/annot/groundfalse/', methods=['GET'])
 def get_annot_groundfalse(ibs, aid_list, is_exemplar=None, valid_aids=None,
                           filter_unknowns=True, daid_list=None):
     r"""
@@ -1077,11 +1078,6 @@ def get_annot_groundfalse(ibs, aid_list, is_exemplar=None, valid_aids=None,
     #    >>> groundfalse_list = ibs.get_annot_groundfalse(aid_list)
     #    >>> result = str(groundtruth_list)
     #    >>> print(result)
-
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/groundfalse/
     """
     if valid_aids is None:
         # get all valid aids if not specified
@@ -1107,7 +1103,7 @@ def get_annot_groundfalse(ibs, aid_list, is_exemplar=None, valid_aids=None,
 
 @register_ibs_method
 @accessor_decors.getter_1toM
-@register_api('/api/annot/groundtruth/', methods=['GET'])
+# @register_api('/api/annot/groundtruth/', methods=['GET'])
 def get_annot_groundtruth(ibs, aid_list, is_exemplar=None, noself=True,
                           daid_list=None):
     r"""
@@ -1129,10 +1125,6 @@ def get_annot_groundtruth(ibs, aid_list, is_exemplar=None, noself=True,
         python -m ibeis.control.manual_annot_funcs --test-get_annot_groundtruth:1
         python -m ibeis.control.manual_annot_funcs --test-get_annot_groundtruth:2
         python -m --tf get_annot_groundtruth:0 --db=PZ_Master0 --aids=97 --exec-mode
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/groundtruth/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -1204,7 +1196,7 @@ def get_annot_groundtruth(ibs, aid_list, is_exemplar=None, noself=True,
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/has_groundtruth/', methods=['GET'])
+# @register_api('/api/annot/groundtruth/check/', methods=['GET'])
 def get_annot_has_groundtruth(ibs, aid_list, is_exemplar=None, noself=True, daid_list=None):
     r"""
     Args:
@@ -1218,10 +1210,6 @@ def get_annot_has_groundtruth(ibs, aid_list, is_exemplar=None, noself=True, daid
 
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_has_groundtruth
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/has_groundtruth/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -1253,14 +1241,14 @@ def get_annot_has_groundtruth(ibs, aid_list, is_exemplar=None, noself=True, daid
 
 
 @register_ibs_method
-@register_api('/api/annot/hashid_uuid/', methods=['GET'])
+@register_api('/api/annot/uuid/hashid/', methods=['GET'])
 def get_annot_hashid_uuid(ibs, aid_list, prefix=''):
     r"""
     builds an aggregate random hash id for a list of aids
 
     RESTful:
         Method: GET
-        URL:    /api/annot/hashid_uuid/
+        URL:    /api/annot/uuid/hashid/
     """
     uuid_list    = ibs.get_annot_uuids(aid_list)
     label = ''.join(('_', prefix, 'UUIDS'))
@@ -1269,7 +1257,7 @@ def get_annot_hashid_uuid(ibs, aid_list, prefix=''):
 
 
 @register_ibs_method
-@register_api('/api/annot/hashid_visual_uuid/', methods=['GET'])
+# @register_api('/api/annot/uuid/visual/hashid/', methods=['GET'])
 def get_annot_hashid_visual_uuid(ibs, aid_list, prefix='', pathsafe=False):
     r"""
     builds an aggregate visual hash id for a list of aids
@@ -1277,10 +1265,6 @@ def get_annot_hashid_visual_uuid(ibs, aid_list, prefix='', pathsafe=False):
     Args:
         _new (bool): Eventually we will change the hashing scheme and all old
             data will be invalidated. (default=False)
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/hashid_visual_uuid/
     """
     visual_uuid_list = ibs.get_annot_visual_uuids(aid_list)
     label = ''.join(('_', prefix, 'VUUIDS'))
@@ -1292,7 +1276,7 @@ def get_annot_hashid_visual_uuid(ibs, aid_list, prefix='', pathsafe=False):
 
 
 @register_ibs_method
-@register_api('/api/annot/hashid_semantic_uuid/', methods=['GET'])
+# @register_api('/api/annot/uuid/semantic/hashid/', methods=['GET'])
 def get_annot_hashid_semantic_uuid(ibs, aid_list, prefix='', pathsafe=False):
     r"""
     builds an aggregate semantic hash id for a list of aids
@@ -1306,10 +1290,6 @@ def get_annot_hashid_semantic_uuid(ibs, aid_list, prefix='', pathsafe=False):
 
     Returns:
         str: semantic_uuid_hashid
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/hashid_semantic_uuid/
 
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_hashid_semantic_uuid
@@ -1326,10 +1306,10 @@ def get_annot_hashid_semantic_uuid(ibs, aid_list, prefix='', pathsafe=False):
         >>> result += ('semantic_uuid_hashid = %s' % (str(semantic_uuid_hashid),))
         >>> print(result)
         [
-            UUID('bf774bf3-582d-dbce-6ca6-329adeb086a6'),
-            UUID('60f10a02-1bd1-c2b4-75bb-a34c0a4b6867'),
+            UUID('0a41bee7-1760-0995-c220-f4b5ddf189ba'),
+            UUID('8150d84c-2ec3-c9ff-3e0f-30a8274a2392'),
         ]
-        semantic_uuid_hashid = _SUUIDS((2)biovwevqycuemoik)
+        semantic_uuid_hashid = _SUUIDS((2)gqxovcbwzimfzovy)
     """
     semantic_uuid_list = ibs.get_annot_semantic_uuids(aid_list)
     label = ''.join(('_', prefix, 'SUUIDS'))
@@ -1342,7 +1322,7 @@ def get_annot_hashid_semantic_uuid(ibs, aid_list, prefix='', pathsafe=False):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/thetas/', methods=['GET'])
+@register_api('/api/annot/theta/', methods=['GET'])
 def get_annot_thetas(ibs, aid_list):
     r"""
     Returns:
@@ -1353,7 +1333,7 @@ def get_annot_thetas(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/thetas/
+        URL:    /api/annot/theta/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -1371,7 +1351,7 @@ def get_annot_thetas(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/uuids/', methods=['GET'])
+@register_api('/api/annot/uuid/', methods=['GET'])
 def get_annot_uuids(ibs, aid_list):
     r"""
     Returns:
@@ -1379,7 +1359,7 @@ def get_annot_uuids(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/uuids/
+        URL:    /api/annot/uuid/
     """
     annot_uuid_list = ibs.db.get(const.ANNOTATION_TABLE, ('annot_uuid',), aid_list)
     return annot_uuid_list
@@ -1387,15 +1367,11 @@ def get_annot_uuids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/uuids/valid/', methods=['GET'])
+# @register_api('/api/annot/uuid/valid/', methods=['GET'])
 def get_valid_annot_uuids(ibs):
     r"""
     Returns:
         list: annot_uuid_list a list of image uuids for all valid aids
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/uuids/
     """
     aid_list = ibs.get_valid_aids()
     annot_uuid_list = ibs.get_annot_uuids(aid_list)
@@ -1406,7 +1382,7 @@ def get_valid_annot_uuids(ibs):
 @register_ibs_method
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.ANNOTATION_TABLE, ANNOT_SEMANTIC_UUID)
-@register_api('/api/annot/semantic_uuids/', methods=['GET'])
+# @register_api('/api/annot/uuid/semantic/', methods=['GET'])
 def get_annot_semantic_uuids(ibs, aid_list):
     r"""
     annot_semantic_uuid_list <- annot.annot_semantic_uuid[aid_list]
@@ -1422,10 +1398,6 @@ def get_annot_semantic_uuids(ibs, aid_list):
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_semantic_uuids
 
-    RESTful:
-        Method: GET
-        URL:    /api/annot/semantic_uuids/
-
     Example:
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
@@ -1434,9 +1406,7 @@ def get_annot_semantic_uuids(ibs, aid_list):
         >>> annot_semantic_uuid_list = ibs.get_annot_semantic_uuids(aid_list)
         >>> assert len(aid_list) == len(annot_semantic_uuid_list)
         >>> result = annot_semantic_uuid_list
-        [UUID('bf774bf3-582d-dbce-6ca6-329adeb086a6')]
-
-        [UUID('215ab5f9-fe53-d7d1-59b8-d6b5ce7e6ca6')]
+        [UUID('0a41bee7-1760-0995-c220-f4b5ddf189ba')]
     """
     id_iter = aid_list
     colnames = (ANNOT_SEMANTIC_UUID,)
@@ -1448,7 +1418,7 @@ def get_annot_semantic_uuids(ibs, aid_list):
 @register_ibs_method
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.ANNOTATION_TABLE, ANNOT_VISUAL_UUID)
-@register_api('/api/annot/visual_uuids/', methods=['GET'])
+# @register_api('/api/annot/uuid/visual/', methods=['GET'])
 def get_annot_visual_uuids(ibs, aid_list):
     r"""
     The image uuid, annotation verticies, are theta is hashted together to
@@ -1467,10 +1437,6 @@ def get_annot_visual_uuids(ibs, aid_list):
 
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_visual_uuids
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/visual_uuids/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -1493,7 +1459,7 @@ def get_annot_visual_uuids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/verts/', methods=['GET'])
+@register_api('/api/annot/vert/', methods=['GET'])
 def get_annot_verts(ibs, aid_list):
     r"""
     Returns:
@@ -1501,7 +1467,7 @@ def get_annot_verts(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/verts/
+        URL:    /api/annot/vert/
     """
     from ibeis.algo.preproc import preproc_annot
     vertstr_list = ibs.db.get(const.ANNOTATION_TABLE, ('annot_verts',), aid_list)
@@ -1512,7 +1478,7 @@ def get_annot_verts(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/rotated_verts/', methods=['GET'])
+@register_api('/api/annot/vert/rotated/', methods=['GET'])
 def get_annot_rotated_verts(ibs, aid_list):
     r"""
     Returns:
@@ -1520,7 +1486,7 @@ def get_annot_rotated_verts(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/rotated_verts/
+        URL:    /api/annot/vert/rotated/
     """
     import vtool as vt
     vert_list = ibs.get_annot_verts(aid_list)
@@ -1538,7 +1504,7 @@ def get_annot_rotated_verts(ibs, aid_list):
 @register_ibs_method
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.ANNOTATION_TABLE, ANNOT_YAW)
-@register_api('/api/annot/yaws/', methods=['GET'])
+@register_api('/api/annot/yaw/', methods=['GET'])
 def get_annot_yaws(ibs, aid_list):
     r"""
     A yaw is the yaw of the annotation in radians
@@ -1563,7 +1529,7 @@ def get_annot_yaws(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/yaws/
+        URL:    /api/annot/yaw/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -1573,11 +1539,10 @@ def get_annot_yaws(ibs, aid_list):
         >>> aid_list = ibs.get_valid_aids()[::3]
         >>> result = get_annot_yaws(ibs, aid_list)
         >>> print(result)
-        [None, None, None, None, None]
+        [3.141592653589793, 3.141592653589793, None, 3.141592653589793, None]
     """
-    #from ibeis.algo.preproc import preproc_annot
     yaw_list = ibs.db.get(const.ANNOTATION_TABLE, (ANNOT_YAW,), aid_list)
-    yaw_list = [yaw if yaw >= 0.0 else None for yaw in yaw_list]
+    yaw_list = [yaw if yaw is not None and yaw >= 0.0 else None for yaw in yaw_list]
     return yaw_list
 
 
@@ -1595,7 +1560,7 @@ def get_annot_yaws_asfloat(ibs, aid_list):
 @register_ibs_method
 @accessor_decors.setter
 @accessor_decors.cache_invalidator(const.ANNOTATION_TABLE, [ANNOT_YAW], rowidx=0)
-@register_api('/api/annot/yaws/', methods=['PUT'])
+@register_api('/api/annot/yaw/', methods=['PUT'])
 def set_annot_yaws(ibs, aid_list, yaw_list, input_is_degrees=False):
     r"""
     Sets the  yaw of a list of chips by aid
@@ -1619,7 +1584,7 @@ def set_annot_yaws(ibs, aid_list, yaw_list, input_is_degrees=False):
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/yaws/
+        URL:    /api/annot/yaw/
     """
     id_iter = ((aid,) for aid in aid_list)
     #yaw_list = [-1 if yaw is None else yaw for yaw in yaw_list]
@@ -1634,7 +1599,7 @@ def set_annot_yaws(ibs, aid_list, yaw_list, input_is_degrees=False):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/notes/', methods=['GET'])
+@register_api('/api/annot/note/', methods=['GET'])
 def get_annot_notes(ibs, aid_list):
     r"""
     Returns:
@@ -1642,7 +1607,7 @@ def get_annot_notes(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/notes/
+        URL:    /api/annot/note/
     """
     annotation_notes_list = ibs.db.get(const.ANNOTATION_TABLE, (ANNOT_NOTE,), aid_list)
     return annotation_notes_list
@@ -1650,16 +1615,11 @@ def get_annot_notes(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/num_groundtruth/', methods=['GET'])
 def get_annot_num_groundtruth(ibs, aid_list, is_exemplar=None, noself=True,
                               daid_list=None):
     r"""
     Returns:
         list_ (list): number of other chips with the same name
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/num_groundtruth/
 
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_num_groundtruth
@@ -1699,7 +1659,7 @@ def get_annot_num_groundtruth(ibs, aid_list, is_exemplar=None, noself=True,
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/num_verts/', methods=['GET'])
+@register_api('/api/annot/num/vert/', methods=['GET'])
 def get_annot_num_verts(ibs, aid_list):
     r"""
     Returns:
@@ -1707,7 +1667,7 @@ def get_annot_num_verts(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/num_verts/
+        URL:    /api/annot/num/vert/
     """
     nVerts_list = ibs.db.get(const.ANNOTATION_TABLE, (ANNOT_NUM_VERTS,), aid_list)
     return nVerts_list
@@ -1715,15 +1675,11 @@ def get_annot_num_verts(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/parent_aid/', methods=['GET'])
+# @register_api('/api/annot/parent/aid/', methods=['GET'])
 def get_annot_parent_aid(ibs, aid_list):
     r"""
     Returns:
         list_ (list): a list of parent (in terms of parts) annotation rowids.
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/parent_aid/
     """
     annot_parent_rowid_list = ibs.db.get(const.ANNOTATION_TABLE, (ANNOT_PARENT_ROWID,), aid_list)
     return annot_parent_rowid_list
@@ -1733,15 +1689,11 @@ def get_annot_parent_aid(ibs, aid_list):
 @ut.accepts_numpy
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.ANNOTATION_TABLE, NAME_ROWID, cfgkeys=['distinguish_unknowns'])
-@register_api('/api/annot/name_rowids/', methods=['GET'])
+# @register_api('/api/annot/name/rowid/', methods=['GET'])
 def get_annot_name_rowids(ibs, aid_list, distinguish_unknowns=True):
     r"""
     Returns:
         list_ (list): the name id of each annotation.
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/name_rowids/
 
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --exec-get_annot_name_rowids
@@ -1764,8 +1716,6 @@ def get_annot_name_rowids(ibs, aid_list, distinguish_unknowns=True):
     colnames = (NAME_ROWID,)
     nid_list_ = ibs.db.get(const.ANNOTATION_TABLE, colnames, id_iter, id_colname='rowid')
     if distinguish_unknowns:
-        #from ibeis.algo.preproc import preproc_annot
-        #nid_list = preproc_annot.distinguish_unknown_nids(ibs, aid_list, nid_list_)
         nid_list = [(None if aid is None else -aid)
                     if nid == const.UNKNOWN_LBLANNOT_ROWID or nid is None else nid
                     for nid, aid in zip(nid_list_, aid_list)]
@@ -1775,35 +1725,46 @@ def get_annot_name_rowids(ibs, aid_list, distinguish_unknowns=True):
 
 
 @register_ibs_method
-@register_api('/api/annot/nids/', methods=['GET'])
+@register_api('/api/annot/name/rowid/', methods=['GET'])
 def get_annot_nids(ibs, aid_list, distinguish_unknowns=True):
     r"""
     alias
 
     RESTful:
         Method: GET
-        URL:    /api/annot/nids/
+        URL:    /api/annot/name/rowid/
     """
     return ibs.get_annot_name_rowids(aid_list, distinguish_unknowns=distinguish_unknowns)
 
 
 @register_ibs_method
-@accessor_decors.getter_1to1
-@register_api('/api/annot/names/', methods=['GET'])
-def get_annot_names(ibs, aid_list):
+@register_api('/api/annot/name/uuid/', methods=['GET'])
+def get_annot_name_uuids(ibs, aid_list, **kwargs):
     r"""
     alias
 
     RESTful:
         Method: GET
-        URL:    /api/annot/names/
+        URL:    /api/annot/name/uuid/
+    """
+    nid_list = ibs.get_annot_name_rowids(aid_list, **kwargs)
+    name_uuid_list = ibs.get_name_uuids(nid_list)
+    return name_uuid_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1to1
+# @register_api('/api/annot/name/', methods=['GET'])
+def get_annot_names(ibs, aid_list):
+    r"""
+    alias
     """
     return ibs.get_annot_name_texts(aid_list)
 
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/name_texts/', methods=['GET'])
+@register_api('/api/annot/name/text/', methods=['GET'])
 def get_annot_name_texts(ibs, aid_list):
     r"""
     Args:
@@ -1815,7 +1776,7 @@ def get_annot_name_texts(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/name_texts/
+        URL:    /api/annot/name/text/
 
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_name_texts
@@ -1839,7 +1800,7 @@ def get_annot_name_texts(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/species/', methods=['GET'])
+@register_api('/api/annot/species/', methods=['GET'], __api_plural_check__=False)
 def get_annot_species(ibs, aid_list):
     r"""
     alias
@@ -1853,7 +1814,7 @@ def get_annot_species(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/species_texts/', methods=['GET'])
+@register_api('/api/annot/species/text/', methods=['GET'], __api_plural_check__=False)
 def get_annot_species_texts(ibs, aid_list):
     r"""
 
@@ -1891,7 +1852,7 @@ def get_annot_species_texts(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/species_texts/
+        URL:    /api/annot/species/text/
     """
     species_rowid_list = ibs.get_annot_species_rowids(aid_list)
     speceis_text_list  = ibs.get_species_texts(species_rowid_list)
@@ -1904,7 +1865,7 @@ def get_annot_species_texts(ibs, aid_list):
 @ut.accepts_numpy
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.ANNOTATION_TABLE, SPECIES_ROWID)
-@register_api('/api/annot/species_rowids/', methods=['GET'])
+@register_api('/api/annot/species/rowid/', methods=['GET'], __api_plural_check__=False)
 def get_annot_species_rowids(ibs, aid_list):
     r"""
     species_rowid_list <- annot.species_rowid[aid_list]
@@ -1919,7 +1880,7 @@ def get_annot_species_rowids(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/species_rowids/
+        URL:    /api/annot/species/rowid/
     """
 
     id_iter = aid_list
@@ -1931,7 +1892,29 @@ def get_annot_species_rowids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/image_names/', methods=['GET'])
+@register_api('/api/annot/species/uuid/', methods=['GET'], __api_plural_check__=False)
+def get_annot_species_uuids(ibs, aid_list):
+    r"""
+    species_rowid_list <- annot.species_rowid[aid_list]
+
+    Args:
+        aid_list (list):
+
+    Returns:
+        list: species_uuid_list
+
+    RESTful:
+        Method: GET
+        URL:    /api/annot/species/uuid/
+    """
+    species_rowid_list = ibs.get_annot_species_rowids(aid_list)
+    species_uuid_list = ibs.get_species_uuids(species_rowid_list)
+    return species_uuid_list
+
+
+@register_ibs_method
+@accessor_decors.getter_1to1
+@register_api('/api/annot/image/name/', methods=['GET'])
 def get_annot_image_names(ibs, aid_list):
     r"""
     Args:
@@ -1942,7 +1925,7 @@ def get_annot_image_names(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/image_names/
+        URL:    /api/annot/image/name/
     """
     gid_list = ibs.get_annot_gids(aid_list)
     gname_list = ibs.get_image_gnames(gid_list)
@@ -1951,7 +1934,7 @@ def get_annot_image_names(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/image_unixtimes/', methods=['GET'])
+@register_api('/api/annot/image/unixtime/', methods=['GET'])
 def get_annot_image_unixtimes(ibs, aid_list):
     r"""
     Args:
@@ -1962,7 +1945,7 @@ def get_annot_image_unixtimes(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/image_unixtimes/
+        URL:    /api/annot/image/unixtime/
     """
     gid_list = ibs.get_annot_gids(aid_list)
     unixtime_list = ibs.get_image_unixtime(gid_list)
@@ -1970,8 +1953,9 @@ def get_annot_image_unixtimes(ibs, aid_list):
 
 
 @register_ibs_method
+@ut.accepts_numpy
 @accessor_decors.getter_1to1
-@register_api('/api/annot/image_unixtimes/', methods=['GET'])
+# @register_api('/api/annot/image/unixtime/float/', methods=['GET'])
 def get_annot_image_unixtimes_asfloat(ibs, aid_list):
     r"""
     Args:
@@ -2004,7 +1988,7 @@ def get_annot_image_unixtimes_asfloat(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-def get_annot_image_datetime(ibs, aid_list):
+def get_annot_image_datetime_str(ibs, aid_list):
     r"""
     Args:
         ibs (IBEISController):  ibeis controller object
@@ -2014,29 +1998,27 @@ def get_annot_image_datetime(ibs, aid_list):
         list: datetime_list
 
     CommandLine:
-        python -m ibeis.control.manual_annot_funcs --test-get_annot_image_datetime
+        python -m ibeis.control.manual_annot_funcs --test-get_annot_image_datetime_str
 
     Example:
         >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
-        >>> # build test data
         >>> ibs = ibeis.opendb('testdb1')
         >>> aid_list = ibs.get_valid_aids()
-        >>> # execute function
-        >>> datetime_list = get_annot_image_datetime(ibs, aid_list)
-        >>> # verify results
+        >>> datetime_list = get_annot_image_datetime_str(ibs, aid_list)
         >>> result = str(datetime_list)
         >>> print(result)
     """
     gid_list = ibs.get_annot_gids(aid_list)
-    datetime_list = ibs.get_image_datetime(gid_list)
+    datetime_list = ibs.get_image_datetime_str(gid_list)
     return datetime_list
 
 
 @register_ibs_method
+@ut.accepts_numpy
 @accessor_decors.getter_1to1
-@register_api('/api/annot/image_gps/', methods=['GET'])
+@register_api('/api/annot/image/gps/', methods=['GET'], __api_plural_check__=False)
 def get_annot_image_gps(ibs, aid_list):
     r"""
     Args:
@@ -2047,7 +2029,7 @@ def get_annot_image_gps(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/image_gps/
+        URL:    /api/annot/image/gps/
     """
     gid_list = ibs.get_annot_gids(aid_list)
     gps_list = ibs.get_image_gps(gid_list)
@@ -2056,7 +2038,7 @@ def get_annot_image_gps(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/image_paths/', methods=['GET'])
+@register_api('/api/annot/image/file/path/', methods=['GET'])
 def get_annot_image_paths(ibs, aid_list):
     r"""
     Args:
@@ -2067,7 +2049,7 @@ def get_annot_image_paths(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/image_paths/
+        URL:    /api/annot/image/file/path/
     """
     gid_list = ibs.get_annot_gids(aid_list)
     try:
@@ -2083,7 +2065,7 @@ def get_annot_image_paths(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/image_uuids/', methods=['GET'])
+@register_api('/api/annot/image/uuid/', methods=['GET'])
 def get_annot_image_uuids(ibs, aid_list):
     r"""
     Args:
@@ -2097,7 +2079,7 @@ def get_annot_image_uuids(ibs, aid_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/image_uuids/
+        URL:    /api/annot/image/uuid/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -2117,7 +2099,7 @@ def get_annot_image_uuids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/images/', methods=['GET'])
+# @register_api('/api/annot/images/', methods=['GET'])
 def get_annot_images(ibs, aid_list):
     r"""
     Args:
@@ -2128,10 +2110,6 @@ def get_annot_images(ibs, aid_list):
 
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_images
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/images/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -2145,12 +2123,12 @@ def get_annot_images(ibs, aid_list):
         [(715, 1047, 3)]
     """
     gid_list = ibs.get_annot_gids(aid_list)
-    image_list = ibs.get_images(gid_list)
+    image_list = ibs.get_image_imgdata(gid_list)
     return image_list
 
 
 @register_ibs_method
-@register_api('/api/annot/visual_uuid_info/', methods=['GET'])
+# @register_api('/api/annot/uuid/visual/info/', methods=['GET'])
 def get_annot_visual_uuid_info(ibs, aid_list):
     r"""
 
@@ -2174,13 +2152,9 @@ def get_annot_visual_uuid_info(ibs, aid_list):
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_visual_uuid_info
 
-    RESTful:
-        Method: GET
-        URL:    /api/annot/visual_uuid_info/
-
     Example:
         >>> # ENABLE_DOCTEST
-        >>> from ibeis.algo.preproc.preproc_annot import *  # NOQA
+        >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
         >>> ibs = ibeis.opendb('testdb1')
         >>> aid_list = ibs.get_valid_aids()[0:2]
@@ -2199,7 +2173,7 @@ def get_annot_visual_uuid_info(ibs, aid_list):
 
 
 @register_ibs_method
-@register_api('/api/annot/semantic_uuid_info/', methods=['GET'])
+# @register_api('/api/annot/uuid/semantic/info/', methods=['GET'])
 def get_annot_semantic_uuid_info(ibs, aid_list, _visual_infotup=None):
     r"""
     Semenatic uuids are made up of visual and semantic information. Semantic
@@ -2216,20 +2190,16 @@ def get_annot_semantic_uuid_info(ibs, aid_list, _visual_infotup=None):
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --test-get_annot_semantic_uuid_info
 
-    RESTful:
-        Method: GET
-        URL:    /api/annot/semantic_uuid_info/
-
     Example:
         >>> # ENABLE_DOCTEST
-        >>> from ibeis.algo.preproc.preproc_annot import *  # NOQA
+        >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
         >>> ibs = ibeis.opendb('testdb1')
         >>> aid_list = ibs.get_valid_aids()[0:2]
         >>> semantic_infotup = ibs.get_annot_semantic_uuid_info(aid_list)
         >>> result = str(list(zip(*semantic_infotup))[1])
         >>> print(result)
-        (UUID('d8903434-942f-e0f5-d6c2-0dcbe3137bf7'), ((0, 0), (1035, 0), (1035, 576), (0, 576)), 0.0, None, u'easy', u'zebra_plains')
+        (UUID('d8903434-942f-e0f5-d6c2-0dcbe3137bf7'), ((0, 0), (1035, 0), (1035, 576), (0, 576)), 0.0, 3.141592653589793, u'easy', u'zebra_plains')
 
     """
     # Semantic info depends on visual info
@@ -2239,35 +2209,35 @@ def get_annot_semantic_uuid_info(ibs, aid_list, _visual_infotup=None):
         visual_infotup = _visual_infotup
     image_uuid_list, verts_list, theta_list = visual_infotup
     # It is visual info augmented with name and species
-    yaw_list        = ibs.get_annot_yaws(aid_list)
     name_list       = ibs.get_annot_names(aid_list)
     species_list    = ibs.get_annot_species_texts(aid_list)
-    semantic_infotup = SemanticInfoTup(image_uuid_list, verts_list, theta_list,
-                                       yaw_list, name_list, species_list)
+
+    # TODO: Remove yaw?
+    yaw_list        = ibs.get_annot_yaws(aid_list)
+
+    semantic_infotup = SemanticInfoTup(
+        image_uuid_list, verts_list, theta_list, yaw_list, name_list,
+        species_list)
     return semantic_infotup
 
 
 @register_ibs_method
 @accessor_decors.cache_invalidator(const.ANNOTATION_TABLE, [ANNOT_SEMANTIC_UUID], rowidx=0)
-@register_api('/api/annot/semantic_uuids/', methods=['PUT'])
+# @register_api('/api/annot/uuid/semantic/', methods=['PUT'])
 def update_annot_semantic_uuids(ibs, aid_list, _visual_infotup=None):
     r"""
     Ensures that annots have the proper semantic uuids
-
-    RESTful:
-        Method: PUT
-        URL:    /api/annot/semantic_uuids/
     """
-    from ibeis.algo.preproc import preproc_annot
     semantic_infotup = ibs.get_annot_semantic_uuid_info(aid_list, _visual_infotup)
-    annot_semantic_uuid_list = preproc_annot.make_annot_semantic_uuid(semantic_infotup)
+    assert len(semantic_infotup) == 6, 'len=%r' % (len(semantic_infotup),)
+    annot_semantic_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*semantic_infotup)]
     ibs.db.set(const.ANNOTATION_TABLE, (ANNOT_SEMANTIC_UUID,), annot_semantic_uuid_list, aid_list)
 
 
 @register_ibs_method
 @accessor_decors.cache_invalidator(const.ANNOTATION_TABLE,
                                    [ANNOT_VISUAL_UUID, ANNOT_SEMANTIC_UUID], rowidx=0)
-@register_api('/api/annot/visual_uuids/', methods=['PUT'])
+# @register_api('/api/annot/uuid/visual/', methods=['PUT'])
 def update_annot_visual_uuids(ibs, aid_list):
     r"""
     Ensures that annots have the proper visual uuids
@@ -2276,10 +2246,6 @@ def update_annot_visual_uuids(ibs, aid_list):
         ibs (IBEISController):  ibeis controller object
         aid_list (list):  list of annotation rowids
 
-    RESTful:
-        Method: PUT
-        URL:    /api/annot/visual_uuids/
-
     CommandLine:
         python -m ibeis.control.manual_annot_funcs --exec-update_annot_visual_uuids --db PZ_Master1
         python -m ibeis --tf update_annot_visual_uuids --db PZ_Master1
@@ -2287,16 +2253,18 @@ def update_annot_visual_uuids(ibs, aid_list):
         python -m ibeis --tf update_annot_visual_uuids --db PZ_MTEST
 
     Example:
-        >>> # SCRIPT
+        >>> # ENABLE_DOCTEST
         >>> from ibeis.control.manual_annot_funcs import *  # NOQA
         >>> import ibeis
         >>> ibs = ibeis.opendb(defaultdb='testdb1')
-        >>> aid_list = ibs._get_all_aids()
+        >>> aid_list = ibs._get_all_aids()[0:1]
         >>> update_annot_visual_uuids(ibs, aid_list)
+        >>> result = ibs.get_annot_visual_uuids(aid_list)[0]
+        8687dcb6-1f1f-fdd3-8b72-8f36f9f41905
     """
-    from ibeis.algo.preproc import preproc_annot
     visual_infotup = ibs.get_annot_visual_uuid_info(aid_list)
-    annot_visual_uuid_list = preproc_annot.make_annot_visual_uuid(visual_infotup)
+    assert len(visual_infotup) == 3, 'len=%r' % (len(visual_infotup),)
+    annot_visual_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*visual_infotup)]
     ibs.db.set(const.ANNOTATION_TABLE, (ANNOT_VISUAL_UUID,), annot_visual_uuid_list, aid_list)
     # If visual uuids are changes semantic ones are also changed
     ibs.update_annot_semantic_uuids(aid_list, _visual_infotup=visual_infotup)
@@ -2307,7 +2275,7 @@ def update_annot_visual_uuids(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/bboxes/', methods=['PUT'])
+@register_api('/api/annot/bbox/', methods=['PUT'])
 def set_annot_bboxes(ibs, aid_list, bbox_list, delete_thumbs=True):
     r"""
     Sets bboxes of a list of annotations by aid,
@@ -2321,7 +2289,7 @@ def set_annot_bboxes(ibs, aid_list, bbox_list, delete_thumbs=True):
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/bboxes/
+        URL:    /api/annot/bbox/
     """
     from vtool import geometry
     # changing the bboxes also changes the bounding polygon
@@ -2332,14 +2300,14 @@ def set_annot_bboxes(ibs, aid_list, bbox_list, delete_thumbs=True):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/detect_confidence/', methods=['PUT'])
+@register_api('/api/annot/detect/confidence/', methods=['PUT'])
 def set_annot_detect_confidence(ibs, aid_list, confidence_list):
     r"""
     Sets annotation notes
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/detect_confidence/
+        URL:    /api/annot/detect/confidence/
     """
     id_iter = ((aid,) for aid in aid_list)
     val_iter = ((confidence,) for confidence in confidence_list)
@@ -2350,14 +2318,14 @@ def set_annot_detect_confidence(ibs, aid_list, confidence_list):
 @accessor_decors.setter
 @accessor_decors.cache_invalidator(const.ANNOTATION_TABLE, [ANNOT_EXEMPLAR_FLAG], rowidx=0)
 @accessor_decors.cache_invalidator(const.IMAGESET_TABLE, ['percent_names_with_exemplar_str'])
-@register_api('/api/annot/exemplar_flags/', methods=['PUT'])
+@register_api('/api/annot/exemplar/', methods=['PUT'])
 def set_annot_exemplar_flags(ibs, aid_list, flag_list):
     r"""
     Sets if an annotation is an exemplar
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/exemplar_flags/
+        URL:    /api/annot/exemplar/
     """
     id_iter = ((aid,) for aid in aid_list)
     val_iter = ((flag,) for flag in flag_list)
@@ -2368,7 +2336,7 @@ def set_annot_exemplar_flags(ibs, aid_list, flag_list):
 @accessor_decors.setter
 @accessor_decors.cache_invalidator(const.ANNOTATION_TABLE, [NAME_ROWID], rowidx=0)
 @accessor_decors.cache_invalidator(const.IMAGESET_TABLE, ['percent_names_with_exemplar_str'])
-@register_api('/api/annot/name_rowids/', methods=['PUT'])
+# @register_api('/api/annot/name/rowid/', methods=['PUT'])
 def set_annot_name_rowids(ibs, aid_list, name_rowid_list):
     r"""
     name_rowid_list -> annot.name_rowid[aid_list]
@@ -2378,10 +2346,6 @@ def set_annot_name_rowids(ibs, aid_list, name_rowid_list):
     Args:
         aid_list (list):
         name_rowid_list (list):
-
-    RESTful:
-        Method: PUT
-        URL:    /api/annot/name_rowids/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -2427,7 +2391,7 @@ def set_annot_name_rowids(ibs, aid_list, name_rowid_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/names/', methods=['PUT'])
+@register_api('/api/annot/name/', methods=['PUT'])
 def set_annot_names(ibs, aid_list, name_list):
     r"""
     Sets the attrlbl_value of type(INDIVIDUAL_KEY) Sets names/nids of a
@@ -2438,7 +2402,7 @@ def set_annot_names(ibs, aid_list, name_list):
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/names/
+        URL:    /api/annot/name/
 
     Example:
         >>> # DISABLE_DOCTEST
@@ -2475,14 +2439,14 @@ def set_annot_name_texts(ibs, aid_list, name_list):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/names/
+        URL:    /api/annot/name/
     """
     return ibs.set_annot_names(aid_list, name_list)
 
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/species/', methods=['PUT'])
+@register_api('/api/annot/species/', methods=['PUT'], __api_plural_check__=False)
 def set_annot_species(ibs, aid_list, species_text_list):
     r"""
     Sets species/speciesids of a list of annotations.
@@ -2508,7 +2472,7 @@ def set_annot_species_and_notify(ibs, *args, **kwargs):
 @register_ibs_method
 @accessor_decors.setter
 @accessor_decors.cache_invalidator(const.ANNOTATION_TABLE, [SPECIES_ROWID], rowidx=0)
-@register_api('/api/annot/species_rowids/', methods=['PUT'])
+@register_api('/api/annot/species/rowid/', methods=['PUT'], __api_plural_check__=False)
 def set_annot_species_rowids(ibs, aid_list, species_rowid_list):
     r"""
     species_rowid_list -> annot.species_rowid[aid_list]
@@ -2522,7 +2486,7 @@ def set_annot_species_rowids(ibs, aid_list, species_rowid_list):
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/species_rowids/
+        URL:    /api/annot/species/rowid/
     """
     id_iter = aid_list
     colnames = (SPECIES_ROWID,)
@@ -2533,14 +2497,14 @@ def set_annot_species_rowids(ibs, aid_list, species_rowid_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/notes/', methods=['PUT'])
+@register_api('/api/annot/note/', methods=['PUT'])
 def set_annot_notes(ibs, aid_list, notes_list):
     r"""
     Sets annotation notes
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/notes/
+        URL:    /api/annot/note/
     """
     id_iter = ((aid,) for aid in aid_list)
     val_iter = ((notes,) for notes in notes_list)
@@ -2549,7 +2513,7 @@ def set_annot_notes(ibs, aid_list, notes_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/parent_rowid/', methods=['PUT'])
+# @register_api('/api/annot/parent/rowid/', methods=['PUT'])
 def set_annot_parent_rowid(ibs, aid_list, parent_aid_list):
     r"""
     Sets the annotation's parent aid.
@@ -2557,7 +2521,7 @@ def set_annot_parent_rowid(ibs, aid_list, parent_aid_list):
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/parent_rowid/
+        URL:    /api/annot/parent/rowid/
     """
     id_iter = ((aid,) for aid in aid_list)
     val_iter = ((parent_aid,) for parent_aid in parent_aid_list)
@@ -2566,34 +2530,35 @@ def set_annot_parent_rowid(ibs, aid_list, parent_aid_list):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/thetas/', methods=['PUT'])
+@register_api('/api/annot/theta/', methods=['PUT'])
 def set_annot_thetas(ibs, aid_list, theta_list, delete_thumbs=True):
     r"""
     Sets thetas of a list of chips by aid
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/thetas/
+        URL:    /api/annot/theta/
     """
     id_iter = ((aid,) for aid in aid_list)
     val_list = ((theta,) for theta in theta_list)
     ibs.db.set(const.ANNOTATION_TABLE, (ANNOT_THETA,), val_list, id_iter)
     if delete_thumbs:
         ibs.delete_annot_chips(aid_list)  # Changing theta redefines the chips
+        ibs.delete_annot_imgthumbs(aid_list)
     ibs.update_annot_visual_uuids(aid_list)
-    ibs.depc_annot.notify_root_changed(aid_list, 'theta')
+    ibs.depc_annot.notify_root_changed(aid_list, 'theta', force_delete=True)
 
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/verts/', methods=['PUT'])
+@register_api('/api/annot/vert/', methods=['PUT'])
 def set_annot_verts(ibs, aid_list, verts_list, delete_thumbs=True):
     r"""
     Sets the vertices [(x, y), ...] of a list of chips by aid
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/verts/
+        URL:    /api/annot/vert/
     """
     from vtool import geometry
     nInput = len(aid_list)
@@ -2617,15 +2582,16 @@ def set_annot_verts(ibs, aid_list, verts_list, delete_thumbs=True):
     ibs.db.set(const.ANNOTATION_TABLE, colnames, val_iter2, id_iter2, nInput=nInput)
     if delete_thumbs:
         ibs.delete_annot_chips(aid_list)  # INVALIDATE THUMBNAILS
+        ibs.delete_annot_imgthumbs(aid_list)
     ibs.update_annot_visual_uuids(aid_list)
-    ibs.depc_annot.notify_root_changed(aid_list, 'verts')
+    ibs.depc_annot.notify_root_changed(aid_list, 'verts', force_delete=True)
 
 
 # PROBCHIP
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/probchip_fpath/', methods=['GET'])
+# @register_api('/api/annot/probchip/fpath/', methods=['GET'])
 def get_annot_probchip_fpath(ibs, aid_list, config2_=None):
     r"""
     Returns paths to probability images.
@@ -2634,10 +2600,6 @@ def get_annot_probchip_fpath(ibs, aid_list, config2_=None):
         ibs (IBEISController):  ibeis controller object
         aid_list (list):  list of annotation rowids
         config2_ (dict): (default = None)
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/probchip_fpath/
 
     Returns:
         list: probchip_fpath_list
@@ -2673,7 +2635,7 @@ def get_annot_probchip_fpath(ibs, aid_list, config2_=None):
 @register_ibs_method
 @accessor_decors.getter_1to1
 @accessor_decors.cache_getter(const.ANNOTATION_TABLE, ANNOT_QUALITY)
-@register_api('/api/annot/qualities/', methods=['GET'])
+@register_api('/api/annot/quality/', methods=['GET'])
 def get_annot_qualities(ibs, aid_list, eager=True):
     r"""
     annot_quality_list <- annot.annot_quality[aid_list]
@@ -2696,7 +2658,7 @@ def get_annot_qualities(ibs, aid_list, eager=True):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/qualities/
+        URL:    /api/annot/quality/
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -2718,7 +2680,7 @@ def get_annot_qualities(ibs, aid_list, eager=True):
 @register_ibs_method
 @accessor_decors.setter
 @accessor_decors.cache_invalidator(const.ANNOTATION_TABLE, [ANNOT_QUALITY], rowidx=0)
-@register_api('/api/annot/qualities/', methods=['PUT'])
+@register_api('/api/annot/quality/', methods=['PUT'])
 def set_annot_qualities(ibs, aid_list, annot_quality_list):
     r"""
     annot_quality_list -> annot.annot_quality[aid_list]
@@ -2734,7 +2696,7 @@ def set_annot_qualities(ibs, aid_list, annot_quality_list):
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/qualities/
+        URL:    /api/annot/quality/
     """
     id_iter = aid_list
     colnames = (ANNOT_QUALITY,)
@@ -2743,14 +2705,14 @@ def set_annot_qualities(ibs, aid_list, annot_quality_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/quality_texts/', methods=['GET'])
+@register_api('/api/annot/quality/text/', methods=['GET'])
 def get_annot_quality_texts(ibs, aid_list):
     r"""
     Auto-docstr for 'get_annot_quality_texts'
 
     RESTful:
         Method: GET
-        URL:    /api/annot/quality_texts/
+        URL:    /api/annot/quality/text/
     """
     quality_list = ibs.get_annot_qualities(aid_list)
     quality_text_list = ut.dict_take(const.QUALITY_INT_TO_TEXT, quality_list)
@@ -2759,14 +2721,10 @@ def get_annot_quality_texts(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/isjunk/', methods=['GET'])
+# @register_api('/api/annot/isjunk/', methods=['GET'])
 def get_annot_isjunk(ibs, aid_list):
     r"""
     Auto-docstr for 'get_annot_isjunk'
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/isjunk/
     """
     qual_list = ibs.get_annot_qualities(aid_list)
     #isjunk_list = [qual == const.QUALITY_TEXT_TO_INT['junk'] for qual in qual_list]
@@ -2776,14 +2734,14 @@ def get_annot_isjunk(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/yaw_texts/', methods=['GET'])
+@register_api('/api/annot/yaw/text/', methods=['GET'])
 def get_annot_yaw_texts(ibs, aid_list):
     r"""
     Auto-docstr for 'get_annot_yaw_texts'
 
     RESTful:
         Method: GET
-        URL:    /api/annot/yaw_texts/
+        URL:    /api/annot/yaw/text/
     """
     yaw_list = ibs.get_annot_yaws(aid_list)
     yaw_text_list = ibsfuncs.get_yaw_viewtexts(yaw_list)
@@ -2791,14 +2749,14 @@ def get_annot_yaw_texts(ibs, aid_list):
 
 
 @register_ibs_method
-@register_api('/api/annot/quality_texts/', methods=['PUT'])
+@register_api('/api/annot/quality/text/', methods=['PUT'])
 def set_annot_quality_texts(ibs, aid_list, quality_text_list):
     r"""
     Auto-docstr for 'set_annot_quality_texts'
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/quality_texts/
+        URL:    /api/annot/quality/text/
     """
     if not ut.isiterable(aid_list):
         aid_list = [aid_list]
@@ -2809,14 +2767,14 @@ def set_annot_quality_texts(ibs, aid_list, quality_text_list):
 
 
 @register_ibs_method
-@register_api('/api/annot/yaw_texts/', methods=['PUT'])
+@register_api('/api/annot/yaw/text/', methods=['PUT'])
 def set_annot_yaw_texts(ibs, aid_list, yaw_text_list):
     r"""
     Auto-docstr for 'set_annot_yaw_texts'
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/yaw_texts/
+        URL:    /api/annot/yaw/text/
     """
     if not ut.isiterable(aid_list):
         aid_list = [aid_list]
@@ -2843,14 +2801,14 @@ def get_annot_sex(ibs, aid_list, eager=True, nInput=None):
 
 
 @register_ibs_method
-@register_api('/api/annot/sex_texts/', methods=['GET'])
+@register_api('/api/annot/sex/text/', methods=['GET'])
 def get_annot_sex_texts(ibs, aid_list, eager=True, nInput=None):
     r"""
     Auto-docstr for 'get_annot_sex_texts'
 
     RESTful:
         Method: GET
-        URL:    /api/annot/sex_texts/
+        URL:    /api/annot/sex/text/
     """
     nid_list = ibs.get_annot_nids(aid_list)
     sex_text_list = ibs.get_name_sex_text(nid_list)
@@ -2876,14 +2834,14 @@ def set_annot_sex(ibs, aid_list, name_sex_list, eager=True, nInput=None):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/sex_texts/', methods=['PUT'])
+@register_api('/api/annot/sex/text/', methods=['PUT'])
 def set_annot_sex_texts(ibs, aid_list, name_sex_text_list, eager=True, nInput=None):
     r"""
     Auto-docstr for 'set_annot_sex_texts'
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/sex_texts/
+        URL:    /api/annot/sex/text/
     """
     nid_list = ibs.get_annot_nids(aid_list)
     flag_list = [ nid is not None for nid in nid_list ]
@@ -2894,7 +2852,7 @@ def set_annot_sex_texts(ibs, aid_list, name_sex_text_list, eager=True, nInput=No
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/age_months_est_min/', methods=['GET'])
+@register_api('/api/annot/age/months/min/', methods=['GET'], __api_plural_check__=False)
 def get_annot_age_months_est_min(ibs, aid_list, eager=True, nInput=None):
     r"""
     annot_age_months_est_min_list <- annot.annot_age_months_est_min[aid_list]
@@ -2909,7 +2867,7 @@ def get_annot_age_months_est_min(ibs, aid_list, eager=True, nInput=None):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/age_months_est_min/
+        URL:    /api/annot/age/months/min/
 
     Example:
         >>> # DISABLE_DOCTEST
@@ -2929,7 +2887,7 @@ def get_annot_age_months_est_min(ibs, aid_list, eager=True, nInput=None):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/age_months_est_max/', methods=['GET'])
+@register_api('/api/annot/age/months/max/', methods=['GET'], __api_plural_check__=False)
 def get_annot_age_months_est_max(ibs, aid_list, eager=True, nInput=None):
     r"""
     annot_age_months_est_max_list <- annot.annot_age_months_est_max[aid_list]
@@ -2944,7 +2902,7 @@ def get_annot_age_months_est_max(ibs, aid_list, eager=True, nInput=None):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/age_months_est_max/
+        URL:    /api/annot/age/months/max/
 
     Example:
         >>> # DISABLE_DOCTEST
@@ -2964,7 +2922,7 @@ def get_annot_age_months_est_max(ibs, aid_list, eager=True, nInput=None):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/age_months_est/', methods=['GET'])
+@register_api('/api/annot/age/months/', methods=['GET'], __api_plural_check__=False)
 def get_annot_age_months_est(ibs, aid_list, eager=True, nInput=None):
     r"""
     annot_age_months_est_list <- annot.annot_age_months_est[aid_list]
@@ -2979,7 +2937,7 @@ def get_annot_age_months_est(ibs, aid_list, eager=True, nInput=None):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/age_months_est/
+        URL:    /api/annot/age/months/
     """
     annot_age_months_est_min_list = ibs.get_annot_age_months_est_min(aid_list)
     annot_age_months_est_max_list = ibs.get_annot_age_months_est_max(aid_list)
@@ -2992,7 +2950,7 @@ def get_annot_age_months_est(ibs, aid_list, eager=True, nInput=None):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/age_months_est_min_texts/', methods=['GET'])
+@register_api('/api/annot/age/months/min/text/', methods=['GET'], __api_plural_check__=False)
 def get_annot_age_months_est_min_texts(ibs, aid_list, eager=True, nInput=None):
     r"""
     annot_age_months_est_min_texts_list <- annot.annot_age_months_est_min_texts[aid_list]
@@ -3007,7 +2965,7 @@ def get_annot_age_months_est_min_texts(ibs, aid_list, eager=True, nInput=None):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/age_months_est_min_texts/
+        URL:    /api/annot/age/months/min/text/
     """
     annot_age_months_est_min_list = ibs.get_annot_age_months_est_min(aid_list)
     annot_age_months_est_min_text_list = [
@@ -3019,7 +2977,7 @@ def get_annot_age_months_est_min_texts(ibs, aid_list, eager=True, nInput=None):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/age_months_est_max_texts/', methods=['GET'])
+@register_api('/api/annot/age/months/max/text/', methods=['GET'], __api_plural_check__=False)
 def get_annot_age_months_est_max_texts(ibs, aid_list, eager=True, nInput=None):
     r"""
     annot_age_months_est_max_texts_list <- annot.annot_age_months_est_max_texts[aid_list]
@@ -3034,7 +2992,7 @@ def get_annot_age_months_est_max_texts(ibs, aid_list, eager=True, nInput=None):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/age_months_est_max_texts/
+        URL:    /api/annot/age/months/max/text/
     """
     annot_age_months_est_max_list = ibs.get_annot_age_months_est_max(aid_list)
     annot_age_months_est_max_text_list = [
@@ -3046,7 +3004,7 @@ def get_annot_age_months_est_max_texts(ibs, aid_list, eager=True, nInput=None):
 
 @register_ibs_method
 @accessor_decors.getter_1to1
-@register_api('/api/annot/age_months_est_texts/', methods=['GET'])
+@register_api('/api/annot/age/months/text/', methods=['GET'], __api_plural_check__=False)
 def get_annot_age_months_est_texts(ibs, aid_list, eager=True, nInput=None):
     r"""
     annot_age_months_est_texts_list <- annot.annot_age_months_est_texts[aid_list]
@@ -3061,7 +3019,7 @@ def get_annot_age_months_est_texts(ibs, aid_list, eager=True, nInput=None):
 
     RESTful:
         Method: GET
-        URL:    /api/annot/age_months_est_texts/
+        URL:    /api/annot/age/months/text/
     """
     annot_age_months_est_min_text_list = ibs.get_annot_age_months_est_min_texts(aid_list)
     annot_age_months_est_max_text_list = ibs.get_annot_age_months_est_max_texts(aid_list)
@@ -3077,7 +3035,7 @@ def get_annot_age_months_est_texts(ibs, aid_list, eager=True, nInput=None):
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/age_months_est_min/', methods=['PUT'])
+@register_api('/api/annot/age/months/min/', methods=['PUT'], __api_plural_check__=False)
 def set_annot_age_months_est_min(ibs, aid_list, annot_age_months_est_min_list,
                                  duplicate_behavior='error'):
     r"""
@@ -3094,7 +3052,7 @@ def set_annot_age_months_est_min(ibs, aid_list, annot_age_months_est_min_list,
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/age_months_est_min/
+        URL:    /api/annot/age/months/min/
     """
     id_iter = aid_list
     colnames = (ANNOT_AGE_MONTHS_EST_MIN,)
@@ -3104,7 +3062,7 @@ def set_annot_age_months_est_min(ibs, aid_list, annot_age_months_est_min_list,
 
 @register_ibs_method
 @accessor_decors.setter
-@register_api('/api/annot/age_months_est_max/', methods=['PUT'])
+@register_api('/api/annot/age/months/max/', methods=['PUT'], __api_plural_check__=False)
 def set_annot_age_months_est_max(ibs, aid_list, annot_age_months_est_max_list,
                                  duplicate_behavior='error'):
     r"""
@@ -3121,7 +3079,7 @@ def set_annot_age_months_est_max(ibs, aid_list, annot_age_months_est_max_list,
 
     RESTful:
         Method: PUT
-        URL:    /api/annot/age_months_est_max/
+        URL:    /api/annot/age/months/max/
     """
     id_iter = aid_list
     colnames = (ANNOT_AGE_MONTHS_EST_MAX,)
@@ -3131,14 +3089,10 @@ def set_annot_age_months_est_max(ibs, aid_list, annot_age_months_est_max_list,
 
 @register_ibs_method
 @accessor_decors.getter
-@register_api('/api/annot/image_contributor_tag/', methods=['GET'])
+@register_api('/api/annot/image/contributor/tag/', methods=['GET'])
 def get_annot_image_contributor_tag(ibs, aid_list):
     r"""
     Auto-docstr for 'get_annot_image_contributor_tag'
-
-    RESTful:
-        Method: GET
-        URL:    /api/annot/image_contributor_tag/
     """
     gid_list = ibs.get_annot_gids(aid_list)
     contrib_tag_list = ibs.get_image_contributor_tag(gid_list)
@@ -3147,14 +3101,14 @@ def get_annot_image_contributor_tag(ibs, aid_list):
 
 @register_ibs_method
 @accessor_decors.getter
-@register_api('/api/annot/image_contributor_tag/', methods=['GET'])
+@register_api('/api/annot/imageset/text/', methods=['GET'])
 def get_annot_image_set_texts(ibs, aid_list):
     r"""
     Auto-docstr for 'get_annot_image_contributor_tag'
 
     RESTful:
         Method: GET
-        URL:    /api/annot/image_contributor_tag/
+        URL:    /api/annot/imageset/text/
     """
     gid_list = ibs.get_annot_gids(aid_list)
     imagesettext_list = ibs.get_image_imagesettext(gid_list)
@@ -3289,10 +3243,73 @@ def set_annot_tag_text(ibs, aid_list, annot_tags_list, duplicate_behavior='error
         annot_tags_list
 
     """
+    #print('[ibs] set_annot_tag_text of aids=%r to tags=%r' % (aid_list, annot_tags_list))
     id_iter = aid_list
     colnames = (ANNOT_TAG_TEXT,)
     ibs.db.set(const.ANNOTATION_TABLE, colnames, annot_tags_list,
                id_iter, duplicate_behavior=duplicate_behavior)
+
+
+@register_ibs_method
+@accessor_decors.getter_1to1
+@register_api('/api/annot/reviewed/', methods=['GET'])
+def get_annot_reviewed(ibs, aid_list):
+    r"""
+    Returns:
+        list_ (list): "All Instances Found" flag, true if all objects of interest
+    (animals) have an ANNOTATION in the annot
+
+    RESTful:
+        Method: GET
+        URL:    /api/annot/reviewed/
+    """
+    reviewed_list = ibs.db.get(const.ANNOTATION_TABLE, ('annot_toggle_reviewed',), aid_list)
+    return reviewed_list
+
+
+@register_ibs_method
+@accessor_decors.setter
+@register_api('/api/annot/reviewed/', methods=['PUT'])
+def set_annot_reviewed(ibs, aid_list, reviewed_list):
+    r"""
+    Sets the annot all instances found bit
+
+    RESTful:
+        Method: PUT
+        URL:    /api/annot/reviewed/
+    """
+    id_iter = ((aid,) for aid in aid_list)
+    val_list = ((reviewed,) for reviewed in reviewed_list)
+    ibs.db.set(const.ANNOTATION_TABLE, ('annot_toggle_reviewed',), val_list, id_iter)
+
+
+@register_ibs_method
+@accessor_decors.getter_1to1
+@register_api('/api/annot/multiple/', methods=['GET'])
+def get_annot_multiple(ibs, aid_list):
+    r"""
+    RESTful:
+        Method: GET
+        URL:    /api/annot/multiple/
+    """
+    flag_list = ibs.db.get(const.ANNOTATION_TABLE, ('annot_toggle_multiple',), aid_list)
+    return flag_list
+
+
+@register_ibs_method
+@accessor_decors.setter
+@register_api('/api/annot/mutiple/', methods=['PUT'])
+def set_annot_multiple(ibs, aid_list, flag_list):
+    r"""
+    Sets the annot all instances found bit
+
+    RESTful:
+        Method: PUT
+        URL:    /api/annot/multiple/
+    """
+    id_iter = ((aid,) for aid in aid_list)
+    val_list = ((flag,) for flag in flag_list)
+    ibs.db.set(const.ANNOTATION_TABLE, ('annot_toggle_multiple',), val_list, id_iter)
 
 
 #==========

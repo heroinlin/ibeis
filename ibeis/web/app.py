@@ -9,6 +9,7 @@ import logging
 import socket
 from ibeis.control import controller_inject
 from ibeis.web import apis_engine
+from ibeis.web import job_engine
 from ibeis.web import appfuncs as appf
 import utool as ut
 
@@ -42,10 +43,12 @@ def start_tornado(ibs, port=None, browser=None, url_suffix=None):
         app = controller_inject.get_flask_app()
         app.ibs = ibs_
         # Try to ascertain the socket's domain name
+        socket.setdefaulttimeout(0.1)
         try:
             app.server_domain = socket.gethostbyname(socket.gethostname())
         except socket.gaierror:
             app.server_domain = '127.0.0.1'
+        socket.setdefaulttimeout(None)
         app.server_port = port_
         # URL for the web instance
         app.server_url = 'http://%s:%s' % (app.server_domain, app.server_port)
@@ -61,7 +64,15 @@ def start_tornado(ibs, port=None, browser=None, url_suffix=None):
         # WSGI is Python standard described in detail in PEP 3333
         http_server = tornado.httpserver.HTTPServer(
             tornado.wsgi.WSGIContainer(app))
-        http_server.listen(app.server_port)
+        try:
+            http_server.listen(app.server_port)
+        except socket.error:
+            while not ut.is_local_port_open(app.server_port):
+                app.server_port += 1
+            args = (app.server_port, )
+            message = 'The port specified for the IBEIS web interface is ' + \
+                      'not available. (Hint: port %d is available)' % args
+            raise RuntimeError(message)
         tornado.ioloop.IOLoop.instance().start()
 
     # Set logging level
@@ -98,14 +109,19 @@ def start_from_ibeis(ibs, port=None, browser=None, precache=None,
 
     if start_job_queue:
         print('[web] opening job manager')
+        ibs.load_plugin_module(job_engine)
         ibs.load_plugin_module(apis_engine)
         #import time
         #time.sleep(1)
+        # No need to sleep, this call should block until engine is live.
         ibs.initialize_job_manager()
         #time.sleep(10)
 
     print('[web] starting tornado')
-    start_tornado(ibs, port, browser, url_suffix)
+    try:
+        start_tornado(ibs, port, browser, url_suffix)
+    except KeyboardInterrupt:
+        print('Caught ctrl+c in webserver. Gracefully exiting')
     print('[web] closing job manager')
     ibs.close_job_manager()
 

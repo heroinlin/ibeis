@@ -48,7 +48,7 @@ register_preproc = register_preprocs['image']
 class ThumbnailConfig(dtool.Config):
     _param_info_list = [
         ut.ParamInfo('draw_annots', True, hideif=True),
-        ut.ParamInfo('thumbsize', None, hideif=None),
+        ut.ParamInfo('thumbsize', None, type_=None, hideif=None),
         ut.ParamInfo('ext', '.png', hideif='.png'),
         ut.ParamInfo('force_serial', False, hideif=False),
     ]
@@ -166,7 +166,7 @@ class ClassifierConfig(dtool.Config):
     coltypes=[float, str],
     configclass=ClassifierConfig,
     fname='detectcache',
-    chunksize=128,
+    chunksize=1024,
 )
 def compute_classifications(depc, gid_list, config=None):
     r"""
@@ -214,11 +214,12 @@ def compute_classifications(depc, gid_list, config=None):
 
 class LocalizerConfig(dtool.Config):
     _param_info_list = [
-        ut.ParamInfo('algo', 'yolo'),
+        ut.ParamInfo('algo', 'yolo', valid_values=['yolo', 'rf']),
         ut.ParamInfo('sensitivity', 0.0),
         ut.ParamInfo('species', 'zebra_plains', hideif='zebra_plains'),
         ut.ParamInfo('config_filepath', None),
         ut.ParamInfo('weight_filepath', None),
+        ut.ParamInfo('class_filepath', None, hideif=lambda cfg: cfg['algo'] != 'yolo' or cfg['class_filepath']),
         ut.ParamInfo('grid', False),
     ]
     _sub_config_list = [
@@ -249,15 +250,18 @@ def compute_localizations(depc, gid_list, config=None):
     CommandLine:
         ibeis compute_localizations
 
+    CommandLine:
+        python -m ibeis.core_images compute_localizations --show
+
     Example:
-        >>> # ENABLE_DOCTEST
+        >>> # SLOW_DOCTEST
         >>> from ibeis.core_images import *  # NOQA
         >>> import ibeis
         >>> defaultdb = 'PZ_MTEST'
         >>> ibs = ibeis.opendb(defaultdb=defaultdb)
         >>> depc = ibs.depc_image
         >>> print(depc.get_tablenames())
-        >>> gid_list = ibs.get_valid_gids()[0:8]
+        >>> gid_list = ibs.get_valid_gids()[0:1]
         >>> config = {'algo': 'yolo'}
         >>> depc.delete_property('localizations', gid_list, config=config)
         >>> detects = depc.get_property('localizations', gid_list, 'bboxes', config=config)
@@ -322,7 +326,7 @@ class LabelerConfig(dtool.Config):
     coltypes=[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list],
     configclass=LabelerConfig,
     fname='detectcache',
-    chunksize=128,
+    chunksize=1024,
 )
 def compute_labels_localizations(depc, loc_id_list, config=None):
     r"""
@@ -396,7 +400,7 @@ def compute_labels_localizations(depc, loc_id_list, config=None):
     chip_list = []
     for gid, new_size, M in zip(gid_list, newsize_list, M_list):
         if gid != last_gid:
-            img = ibs.get_images(gid)
+            img = ibs.get_image_imgdata(gid)
             last_gid = gid
         chip = cv2.warpAffine(img, M[0:2], tuple(new_size), **warpkw)
         # cv2.imshow('', chip)
@@ -454,7 +458,7 @@ class DetectorConfig(dtool.Config):
     coltypes=[float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
     configclass=DetectorConfig,
     fname='detectcache',
-    chunksize=256,
+    chunksize=1024,
 )
 def compute_detections(depc, gid_list, config=None):
     r"""
@@ -472,7 +476,7 @@ def compute_detections(depc, gid_list, config=None):
         ibeis compute_detections
 
     Example:
-        >>> # ENABLE_DOCTEST
+        >>> # SLOW_DOCTEST
         >>> from ibeis.core_images import *  # NOQA
         >>> import ibeis
         >>> defaultdb = 'PZ_MTEST'
@@ -481,31 +485,35 @@ def compute_detections(depc, gid_list, config=None):
         >>> # dbdir = '/media/danger/GGR/GGR-IBEIS-TEST/'
         >>> # ibs = ibeis.opendb(dbdir=dbdir)
         >>> depc = ibs.depc_image
-        >>> gid_list = ibs.get_valid_gids()[0:10]
+        >>> gid_list = ibs.get_valid_gids()[0:2]
         >>> depc.delete_property('detections', gid_list)
         >>> detects = depc.get_property('detections', gid_list, None)
         >>> print(detects)
     """
+    from ibeis.web.apis_detect import USE_LOCALIZATIONS
     print('[ibs] Preprocess Detections')
     print('config = %r' % (config,))
     # Get controller
     ibs = depc.controller
     ibs.assert_valid_gids(gid_list)
 
-    # Filter the gids by annotations
-    prediction_list = depc.get_property('classifier', gid_list, 'class')
-    confidence_list = depc.get_property('classifier', gid_list, 'score')
-    confidence_list = [
-        confidence if prediction == 'positive' else 1.0 - confidence
-        for prediction, confidence  in zip(prediction_list, confidence_list)
-    ]
-    gid_list_ = [
-        gid
-        for gid, confidence in zip(gid_list, confidence_list)
-        if confidence >= config['classifier_sensitivity']
-    ]
-    gid_set_ = set(gid_list_)
+    if not USE_LOCALIZATIONS:
+        # Filter the gids by annotations
+        prediction_list = depc.get_property('classifier', gid_list, 'class')
+        confidence_list = depc.get_property('classifier', gid_list, 'score')
+        confidence_list = [
+            confidence if prediction == 'positive' else 1.0 - confidence
+            for prediction, confidence  in zip(prediction_list, confidence_list)
+        ]
+        gid_list_ = [
+            gid
+            for gid, confidence in zip(gid_list, confidence_list)
+            if confidence >= config['classifier_sensitivity']
+        ]
+    else:
+        gid_list_ = list(gid_list)
 
+    gid_set_ = set(gid_list_)
     # Get the localizations for the good gids and add formal annotations
     localizer_config = {
         'config_filepath' : config['localizer_config_filepath'],
@@ -516,10 +524,18 @@ def compute_detections(depc, gid_list, config=None):
     thetas_list  = depc.get_property('localizations', gid_list_, 'thetas',    config=localizer_config)
     confses_list = depc.get_property('localizations', gid_list_, 'confs',     config=localizer_config)
 
-    # depc.delete_property('labeler', gid_list_, config=localizer_config)
-    specieses_list     = depc.get_property('labeler', gid_list_, 'species',   config=localizer_config)
-    viewpoints_list    = depc.get_property('labeler', gid_list_, 'viewpoint', config=localizer_config)
-    scores_list        = depc.get_property('labeler', gid_list_, 'score',     config=localizer_config)
+    if not USE_LOCALIZATIONS:
+        # depc.delete_property('labeler', gid_list_, config=localizer_config)
+        specieses_list     = depc.get_property('labeler', gid_list_, 'species',   config=localizer_config)
+        viewpoints_list    = depc.get_property('labeler', gid_list_, 'viewpoint', config=localizer_config)
+        scores_list        = depc.get_property('labeler', gid_list_, 'score',     config=localizer_config)
+    else:
+        specieses_list     = depc.get_property('localizations', gid_list_, 'classes',   config=localizer_config)
+        viewpoints_list    = [
+            [-1] * len(bbox_list)
+            for bbox_list in bboxes_list
+        ]
+        scores_list        = depc.get_property('localizations', gid_list_, 'confs',     config=localizer_config)
 
     # Collect the detections, filtering by the localization confidence
     empty_list = [0.0, np.array([]), np.array([]), np.array([]), np.array([]), np.array([])]
@@ -543,7 +559,7 @@ def compute_detections(depc, gid_list, config=None):
         zipped = [
             [bbox, theta, species, viewpoint, conf * score]
             for bbox, theta, species, viewpoint, conf, score in zipped
-            if conf >= config['localizer_sensitivity'] and score >= config['labeler_sensitivity']
+            if conf >= config['localizer_sensitivity'] and score >= config['labeler_sensitivity'] and max(bbox[2], bbox[3]) / min(bbox[2], bbox[3]) < 20.0
         ]
         if len(zipped) == 0:
             detect_list = list(empty_list)
@@ -562,7 +578,7 @@ def compute_detections(depc, gid_list, config=None):
         # print(result)
         # raw_input()
         # print('')
-        # image = ibs.get_images(gid)
+        # image = ibs.get_image_imgdata(gid)
         # image = vt.resize(image, (500, 500))
         # cv2.imshow('', image)
         # cv2.waitKey(0)

@@ -18,11 +18,6 @@ import numpy as np
 import vtool as vt
 import utool as ut
 import cv2
-try:
-    from detecttools.pypascalmarkup import PascalVOC_Markup_Annotation
-except ImportError as ex:
-    ut.printex('COMMIT TO DETECTTOOLS')
-    pass
 from ibeis.control import controller_inject
 from ibeis import annotmatch_funcs  # NOQA
 
@@ -37,8 +32,16 @@ CLASS_INJECT_KEY, register_ibs_method = (
 
 @register_ibs_method
 def export_to_xml(ibs, offset='auto', enforce_yaw=False, target_size=500, purge=False):
+    """
+    Creates training XML for training models
+    """
     import random
     from datetime import date
+    # try:
+    from detecttools.pypascalmarkup import PascalVOC_Markup_Annotation
+    # except ImportError as:
+    #     ut.printex('COMMIT TO DETECTTOOLS')
+    #     pass
 
     current_year = int(date.today().year)
     # target_size = 900
@@ -86,7 +89,7 @@ def export_to_xml(ibs, offset='auto', enforce_yaw=False, target_size=500, purge=
             out_img = out_name + ".jpg"
             folder = "IBEIS"
 
-            _image = ibs.get_images(gid)
+            _image = ibs.get_image_imgdata(gid)
             height, width, channels = _image.shape
 
             if width > height:
@@ -1512,6 +1515,17 @@ def labeler_train(ibs):
 
 
 @register_ibs_method
+def qualifier_train(ibs):
+    from ibeis_cnn.ingest_ibeis import get_cnn_qualifier_training_images
+    from ibeis.algo.detect.qualifier.qualifier import train_qualifier
+    data_path = join(ibs.get_cachedir(), 'extracted')
+    get_cnn_qualifier_training_images(ibs, data_path)
+    output_path = join(ibs.get_cachedir(), 'training', 'qualifier')
+    model_path = train_qualifier(output_path, source_path=data_path)
+    return model_path
+
+
+@register_ibs_method
 def detector_train(ibs):
     results = ibs.localizer_train()
     localizer_weight_path, localizer_config_path, localizer_class_path = results
@@ -1549,7 +1563,7 @@ def _resize(image, t_width=None, t_height=None):
 @register_ibs_method
 def detect_write_detection_all(ibs):
     test_gid_list = ibs.get_valid_gids()
-    test_image_list = ibs.get_images(test_gid_list)
+    test_image_list = ibs.get_image_imgdata(test_gid_list)
     test_uuid_list = ibs.get_image_uuids(test_gid_list)
 
     write_path = abspath(expanduser(join('~', 'Desktop')))

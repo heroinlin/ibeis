@@ -186,7 +186,7 @@ def incremental_test(ibs, qaid_list, daid_list=None):
 def inspect_matches(ibs, qaid_list, daid_list):
     print('<inspect_matches>')
     from ibeis.gui import inspect_gui
-    return inspect_gui.test_inspect_matches(ibs, qaid_list, daid_list)
+    return inspect_gui.test_review_widget(ibs, qaid_list, daid_list)
 
 
 def get_ibslist(ibs):
@@ -402,6 +402,8 @@ def dev_snippets(main_locals):
             selection_model = view.selectionModel()
     if ibs is not None:
         #ibs.dump_tables()
+        annots = ibs.annots()
+        images = ibs.images()
         aid_list = ibs.get_valid_aids()
         gid_list = ibs.get_valid_gids()
         #nid_list = ibs.get_valid_nids()
@@ -583,11 +585,15 @@ def run_dev(ibs):
     # Get reference to controller
     if ibs is not None:
         # Get aids marked as test cases
-        ibs, qaid_list, daid_list = main_helpers.testdata_expanded_aids(ibs=ibs)
-        #qaid_list = main_helpers.get_test_qaids(ibs, default_qaids=[1])
-        #daid_list = main_helpers.get_test_daids(ibs, default_daids='all', qaid_list=qaid_list)
-        print('[run_def] Test Annotations:')
-        #print('[run_dev] * qaid_list = %s' % ut.packstr(qaid_list, 80, nlprefix='[run_dev]     '))
+        if not ut.get_argflag('--no-expanded-aids'):
+            ibs, qaid_list, daid_list = main_helpers.testdata_expanded_aids(ibs=ibs)
+            #qaid_list = main_helpers.get_test_qaids(ibs, default_qaids=[1])
+            #daid_list = main_helpers.get_test_daids(ibs, default_daids='all', qaid_list=qaid_list)
+            print('[run_def] Test Annotations:')
+            #print('[run_dev] * qaid_list = %s' % ut.packstr(qaid_list, 80, nlprefix='[run_dev]     '))
+        else:
+            qaid_list = []
+            daid_list = []
         try:
             assert len(qaid_list) > 0, 'assert!'
             assert len(daid_list) > 0, 'daid_list!'

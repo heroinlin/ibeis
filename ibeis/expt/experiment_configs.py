@@ -8,7 +8,7 @@ Rename to pipe_cfgdef
 """
 from __future__ import absolute_import, division, print_function
 import utool as ut
-print, print_, printDBG, rrr, profile = ut.inject(__name__, '[cfgbank]')
+print, rrr, profile = ut.inject2(__name__, '[cfgbank]')
 
 
 ALIAS_KEYS = {
@@ -56,7 +56,7 @@ def apply_Ell(cfg):
 def apply_EllQRH(cfg):
     return apply_param(cfg, augment_queryside_hack=True, affine_invariance=True)
 
-exclude_vars = vars().keys()   # this line is before tests
+exclude_vars = list(locals().keys())   # this line is before tests
 
 default = [{}]
 
@@ -172,7 +172,7 @@ invar = candinvar = candidacy_invariance = [
 custom = 'custom'
 
 
-include_vars = vars().keys()  # this line is after tests
+include_vars = list(locals().keys())  # this line is after tests
 
 # List of all valid tests
 TEST_NAMES = set(include_vars) - set(exclude_vars)

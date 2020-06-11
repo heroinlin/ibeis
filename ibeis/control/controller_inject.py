@@ -291,8 +291,8 @@ def translate_ibeis_webcall(func, *args, **kwargs):
     """
     #print('Calling: %r with args: %r and kwargs: %r' % (func, args, kwargs, ))
     ibs = flask.current_app.ibs
-    funcstr = ut.func_str(func, (ibs,) + args, kwargs=kwargs)
-    print('Calling: %s' % (funcstr,))
+    funcstr = ut.func_str(func, (ibs,) + args, kwargs=kwargs, truncate=True)
+    print('[TRANSLATE] Calling: %s' % (funcstr,))
     assert len(args) == 0, 'There should not be any args=%r' % (args,)
 
     try:
@@ -489,6 +489,9 @@ def remote_api_wrapper(func):
     return remote_api_call
 
 
+API_SEEN_SET = set([])
+
+
 def get_ibeis_flask_api(__name__, DEBUG_PYTHON_STACK_TRACE_JSON_RESPONSE=True):
     """
     For function calls that resolve to api calls and return json.
@@ -496,11 +499,33 @@ def get_ibeis_flask_api(__name__, DEBUG_PYTHON_STACK_TRACE_JSON_RESPONSE=True):
     if __name__ == '__main__':
         return ut.dummy_args_decor
     if GLOBAL_APP_ENABLED:
-        def register_api(rule, **options):
-            assert rule.endswith('/'), 'An api should always end in a forward-slash'
+        def register_api(rule, __api_plural_check__=True, **options):
+            global API_SEEN_SET
+            assert rule.endswith('/'), 'An API should always end in a forward-slash'
             assert 'methods' in options, 'An api should always have a specified methods list'
-            # if '_' in rule:
-            #     print('CONSIDER RENAMING RULE: %r' % (rule, ))
+            rule_ = rule + ':'.join(options['methods'])
+            assert rule_ not in API_SEEN_SET, 'An API rule has been duplicated'
+            API_SEEN_SET.add(rule_)
+            try:
+                assert 'annotation' not in rule, 'An API rule should use "annot" instead of annotation(s)"'
+                assert 'imgset' not in rule, 'An API should use "imageset" instead of imgset(s)"'
+                assert '_' not in rule, 'An API should never contain an underscore'
+                assert '-' not in rule, 'An API should never contain a hyphen'
+                if __api_plural_check__:
+                    assert 's/' not in rule, 'Use singular (non-plural) URL routes'
+                check_list = [
+                    'annotgroup',
+                    'autogen',
+                    'chip',
+                    'config',
+                    'contributor',
+                    'gar',
+                    'metadata',
+                ]
+                for check in check_list:
+                    assert '/api/%s/' % (check, ) not in rule
+            except:
+                print('CONSIDER RENAMING API RULE: %r' % (rule, ))
 
             # accpet args to flask.route
             def regsiter_closure(func):
@@ -513,7 +538,6 @@ def get_ibeis_flask_api(__name__, DEBUG_PYTHON_STACK_TRACE_JSON_RESPONSE=True):
                 @wraps(func)
                 #def translated_call(*args, **kwargs):
                 def translated_call(**kwargs):
-
                     def html_newlines(text):
                         r = '<br />\n'
                         text = text.replace(' ', '&nbsp;')
@@ -627,10 +651,12 @@ def get_ibeis_flask_route(__name__):
     if __name__ == '__main__':
         return ut.dummy_args_decor
     if GLOBAL_APP_ENABLED:
-        def register_route(rule, __api_prefix_check__=True, **options):
+        def register_route(rule, __api_prefix_check__=True,
+                           __api_postfix_check__=True, **options):
             if __api_prefix_check__:
                 assert not rule.startswith('/api/'), 'Cannot start a route rule (%r) with the prefix "/api/"' % (rule, )
-            assert rule.endswith('/'), 'A route should always end in a forward-slash'
+            if __api_postfix_check__:
+                assert rule.endswith('/'), 'A route should always end in a forward-slash'
             assert 'methods' in options, 'A route should always have a specified methods list'
             # if '_' in rule:
             #     print('CONSIDER RENAMING RULE: %r' % (rule, ))
@@ -700,8 +726,9 @@ def api_remote_ibeis(remote_ibeis_url, remote_api_func, remote_ibeis_port=5001,
     print('[REMOTE] %s' % ('-' * 80, ))
     print('[REMOTE] Calling remote IBEIS API: %r' % (remote_api_url, ))
     print('[REMOTE] \tMethod:  %r' % (remote_api_method, ))
-    print('[REMOTE] \tHeaders: %s' % (ut.dict_str(headers), ))
-    print('[REMOTE] \tKWArgs:  %s' % (ut.dict_str(kwargs), ))
+    if ut.DEBUG2 or ut.VERBOSE:
+        print('[REMOTE] \tHeaders: %s' % (ut.dict_str(headers), ))
+        print('[REMOTE] \tKWArgs:  %s' % (ut.dict_str(kwargs), ))
 
     # Make request to server
     try:
@@ -726,7 +753,9 @@ def api_remote_ibeis(remote_ibeis_url, remote_api_func, remote_ibeis_port=5001,
     response = req.text
     converted = ut.from_json(value)
     response = converted.get('response', None)
-    print('response = %s' % (response,))
+    print('[REMOTE] got response')
+    if ut.DEBUG2:
+        print('response = %s' % (response,))
     return response
 
 
@@ -758,11 +787,10 @@ def dev_autogen_explicit_injects():
         >>> dev_autogen_explicit_injects()
     """
     import ibeis  # NOQA
+    import ibeis.control.IBEISControl
     classname = CONTROLLER_CLASSNAME
     regen_command = (
-        'python -m ibeis.control.controller_inject '
-        '--exec-dev_autogen_explicit_injects')
-    import ibeis.control.IBEISControl
+        'python -m ibeis dev_autogen_explicit_injects')
     conditional_imports = [
         modname for modname in ibeis.control.IBEISControl.AUTOLOAD_PLUGIN_MODNAMES
         if isinstance(modname, tuple)
@@ -771,7 +799,7 @@ def dev_autogen_explicit_injects():
         classname, regen_command, conditional_imports)
     dpath = ut.get_module_dir(ibeis.control.IBEISControl)
     fpath = ut.unixjoin(dpath, '_autogen_explicit_controller.py')
-    ut.writeto(fpath, source_block)
+    ut.writeto(fpath, source_block, verbose=2)
 
 
 def make_ibs_register_decorator(modname):

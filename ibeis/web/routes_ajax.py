@@ -41,12 +41,12 @@ def image_src(gid=None, thumbnail=False, fresh=False, **kwargs):
     return appf.embed_image_html(image, target_width=None)
 
 
-@register_route('/ajax/annotation/src/<aid>/', methods=['GET'])
+@register_route('/ajax/annot/src/<aid>/', methods=['GET'])
 def annotation_src(aid=None):
     ibs = current_app.ibs
     gpath = ibs.get_annot_chip_fpath(aid)
     image = vt.imread(gpath)
-    image_src = appf.embed_image_html(image, target_width=200)
+    image_src = appf.embed_image_html(image, target_width=None, target_height=300)
     return image_src
 
 

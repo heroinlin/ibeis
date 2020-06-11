@@ -134,6 +134,10 @@ def make_config_metaclass():
         return parse_config_items(cfg)
 
     @_register
+    def keys(cfg, **kwargs):
+        return ut.take_column(cfg.parse_items(), 0)
+
+    @_register
     def get_config_name(cfg, **kwargs):
         """ the user might want to overwrite this function """
         class_str = str(cfg.__class__)
@@ -149,6 +153,13 @@ def make_config_metaclass():
     @_register
     def get_cfgstr(cfg, **kwargs):
         return ''.join(cfg.get_cfgstr_list(**kwargs))
+
+    @_register
+    def lookup_paraminfo(cfg, key):
+        for pi in cfg.get_param_info_list():
+            if pi.varname == key:
+                return pi
+        raise KeyError('no such param info (in the old config)')
 
     class ConfigMetaclass(type):
         """
@@ -196,8 +207,10 @@ class NNConfig(ConfigBase):
         >>> # DISABLE_DOCTEST
         >>> from ibeis.algo.Config import *  # NOQA
         >>> nn_cfg = NNConfig()
+        >>> nn_cfg = NNConfig(single_name_condition=True)
         >>> result = nn_cfg.get_cfgstr()
         >>> print(result)
+        _NN(single,K=4,Kn=1,padk=False,cks800)
     """
     def __init__(nn_cfg, **kwargs):
         super(NNConfig, nn_cfg).__init__()
@@ -233,6 +246,7 @@ class NNConfig(ConfigBase):
                 ut.ParamInfo('K', 4, type_=int),
                 ut.ParamInfo('Knorm', 1, 'Kn='),
                 ut.ParamInfo('use_k_padding', False, 'padk='),
+                ut.ParamInfo('single_name_condition', False, 'nameknn', type_=bool, hideif=False),
                 ut.ParamInfo('checks', 800, 'cks', type_=int),
                 #ut.ParamInfo('ratio_thresh', None, type_=float, hideif=None),
             ],
@@ -363,6 +377,10 @@ class FlannConfig(ConfigBase):
         flann_cfg.centers_init = 'random'
         flann_cfg.cb_index = .4
         flann_cfg.branching = 64
+        # THESE CONFIGS DONT BELONG TO FLANN. THEY ARE INDEXER CONFIGS
+        flann_cfg.fgw_thresh = None
+        flann_cfg.minscale_thresh = None
+        flann_cfg.maxscale_thresh = None
         flann_cfg.update(**kwargs)
 
     def get_flann_params(flann_cfg):
@@ -388,6 +406,12 @@ class FlannConfig(ConfigBase):
             flann_cfgstrs += ['%s' % flann_cfg.algorithm]
         else:
             flann_cfgstrs += ['%s' % flann_cfg.algorithm]
+        if flann_cfg.fgw_thresh is not None and flann_cfg.fgw_thresh > 0:
+            # HACK FOR GGR
+            flann_cfgstrs += ['_fgwthrsh=%s' % flann_cfg.fgw_thresh]
+        if (flann_cfg.minscale_thresh is not None) or (flann_cfg.maxscale_thresh is not None):
+            # HACK FOR GGR
+            flann_cfgstrs += ['scalethrsh=%s,%s' % (flann_cfg.minscale_thresh, flann_cfg.maxscale_thresh)]
         #flann_cfgstrs += ['checks=%r' % flann_cfg.checks]
         flann_cfgstrs += [')']
         return flann_cfgstrs
@@ -699,7 +723,7 @@ class QueryConfig(ConfigBase):
         query_cfg._featweight_cfg = FeatureWeightConfig(**kwargs)
         query_cfg.use_cache = False
         # Start of pipeline
-        query_cfg._valid_pipeline_roots = ['vsmany', 'vsone', 'smk']
+        query_cfg._valid_pipeline_roots = ['vsmany', 'vsone', 'smk', 'BC_DTW']
         query_cfg.pipeline_root = 'vsmany'
         # <Hack Paramaters>
         query_cfg.with_metadata = False
@@ -867,18 +891,19 @@ class QueryConfig(ConfigBase):
             smk_cfg.smk_aggregate = True
 
         hasvalid_root = any([
-            query_cfg.pipeline_root == root
+            query_cfg.pipeline_root.lower() == root.lower()
             for root in query_cfg._valid_pipeline_roots])
         try:
             assert hasvalid_root, (
-                'invalid pipeline root %r' % query_cfg.pipeline_root)
+                'invalid pipeline root %r valid roots are %r' % query_cfg.pipeline_root, query_cfg._valid_pipeline_roots)
         except AssertionError as ex:
             ut.printex(ex)
-            if ut.SUPER_STRICT:
-                raise
-            else:
-                query_cfg.pipeline_root = query_cfg._valid_pipeline_roots[0]
-                pass
+            raise
+            #if ut.SUPER_STRICT:
+            #    raise
+            #else:
+            #    query_cfg.pipeline_root = query_cfg._valid_pipeline_roots[0]
+            #    pass
 
         # HACK
         if nnweight_cfg.fg_on is not True:
@@ -1091,10 +1116,12 @@ class OccurrenceConfig(ConfigBase):
     def get_param_info_list(occur_cfg):
         param_info_list = [
             ut.ParamInfo('min_imgs_per_occurrence', 1, 'minper='),
-            ut.ParamInfo('cluster_algo', 'agglomerative', ''),
-            ut.ParamInfo('quantile', .01, 'quant', hideif=lambda cfg: cfg['cluster_algo'] != 'meanshift'),
+            #ut.ParamInfo('cluster_algo', 'agglomerative', '', valid_values=['agglomerative', 'meanshift']),
+            ut.ParamInfo('cluster_algo', 'agglomerative', '', valid_values=['agglomerative']),
+            #ut.ParamInfo('quantile', .01, 'quant', hideif=lambda cfg: cfg['cluster_algo'] != 'meanshift'),
             ut.ParamInfo('seconds_thresh', 600, 'sec', hideif=lambda cfg: cfg['cluster_algo'] != 'agglomerative'),
-            ut.ParamInfo('use_gps', False, hideif=False),
+            ut.ParamInfo('use_gps', True, hideif=False),
+            ut.ParamInfo('km_per_sec', .002)
         ]
         return param_info_list
 
@@ -1123,7 +1150,7 @@ class OtherConfig(ConfigBase):
         #other_cfg.thumb_size      = 128
         other_cfg.thumb_size      = 221
         other_cfg.thumb_bare_size = 700
-        other_cfg.ranks_lt        = 2
+        other_cfg.ranks_top        = 2
         other_cfg.filter_reviewed = True
         other_cfg.auto_localize   = True
         # maximum number of exemplars per name
@@ -1338,7 +1365,8 @@ def _default_named_config(cfg, cfgname):
         cfg.query_cfg.flann_cfg.trees = 8
         cfg.query_cfg.nn_cfg.checks = 316
     else:
-        print('WARNING: UNKNOWN CFGNAME=%r' % (cfgname,))
+        if ut.VERBOSE:
+            print('WARNING: UNKNOWN CFGNAME=%r' % (cfgname,))
 
 
 if __name__ == '__main__':

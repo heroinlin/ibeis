@@ -6,12 +6,14 @@ from __future__ import absolute_import, division, print_function
 from os.path import join, exists
 import zipfile
 import time
-import cStringIO as StringIO
+from six.moves import cStringIO as StringIO
 from flask import request, current_app, send_file
 from ibeis.control import controller_inject
 from ibeis.web import appfuncs as appf
 import utool as ut
 import vtool as vt
+import uuid as uuid_module
+import six
 print, rrr, profile = ut.inject2(__name__, '[apis]')
 
 
@@ -21,40 +23,83 @@ register_route = controller_inject.get_ibeis_flask_route(__name__)
 
 # Special function that is a route only to ignore the JSON response, but is
 # actually (and should be) an API call
-@register_route('/api/image/src/<gid>/', methods=['GET'], __api_prefix_check__=False)
-def image_src_api(gid=None, thumbnail=False, fresh=False, **kwargs):
+@register_route('/api/image/src/<rowid>/', methods=['GET'], __api_prefix_check__=False)
+def image_src_api(rowid=None, thumbnail=False, fresh=False, **kwargs):
     r"""
     Returns the image file of image <gid>
 
+    Example:
+        >>> # WEB_DOCTEST
+        >>> from ibeis.web.app import *  # NOQA
+        >>> import ibeis
+        >>> web_ibs = ibeis.opendb_bg_web('testdb1', start_job_queue=False)
+        >>> web_ibs.send_ibeis_request('/api/image/src/', type_='get', gid=1)
+        >>> print(resp)
+        >>> web_ibs.terminate2()
+
     RESTful:
         Method: GET
-        URL:    /api/image/src/<gid>/
+        URL:    /api/image/src/<rowid>/
     """
     from PIL import Image  # NOQA
     thumbnail = thumbnail or 'thumbnail' in request.args or 'thumbnail' in request.form
     ibs = current_app.ibs
     if thumbnail:
-        gpath = ibs.get_image_thumbpath(gid, ensure_paths=True)
+        gpath = ibs.get_image_thumbpath(rowid, ensure_paths=True)
         fresh = fresh or 'fresh' in request.args or 'fresh' in request.form
         if fresh:
-            import os
-            os.remove(gpath)
-            gpath = ibs.get_image_thumbpath(gid, ensure_paths=True)
+            #import os
+            #os.remove(gpath)
+            ut.delete(gpath)
+            gpath = ibs.get_image_thumbpath(rowid, ensure_paths=True)
     else:
-        gpath = ibs.get_image_paths(gid)
+        gpath = ibs.get_image_paths(rowid)
 
     # Load image
+    assert gpath is not None, 'image path should not be None'
     image = vt.imread(gpath, orient='auto')
     image = appf.resize_via_web_parameters(image)
     image = image[:, :, ::-1]
 
     # Encode image
     image_pil = Image.fromarray(image)
-    img_io = StringIO.StringIO()
+    img_io = StringIO()
     image_pil.save(img_io, 'JPEG', quality=100)
     img_io.seek(0)
     return send_file(img_io, mimetype='image/jpeg')
     # return send_file(gpath, mimetype='application/unknown')
+
+
+# Special function that is a route only to ignore the JSON response, but is
+# actually (and should be) an API call
+@register_route('/api/image/src/json/<uuid>/', methods=['GET'], __api_prefix_check__=False)
+def image_src_api_json(uuid=None, **kwargs):
+    r"""
+    Returns the image file of image <gid>
+
+    Example:
+        >>> # WEB_DOCTEST
+        >>> from ibeis.web.app import *  # NOQA
+        >>> import ibeis
+        >>> web_ibs = ibeis.opendb_bg_web('testdb1', start_job_queue=False)
+        >>> web_ibs.send_ibeis_request('/api/image/src/', type_='get', gid=1)
+        >>> print(resp)
+        >>> web_ibs.terminate2()
+
+    RESTful:
+        Method: GET
+        URL:    /api/image/src/<gid>/
+    """
+    ibs = current_app.ibs
+    try:
+        if isinstance(uuid, six.string_types):
+            uuid = uuid_module.UUID(uuid)
+        gid = ibs.get_image_gids_from_uuid(uuid)
+        return image_src_api(gid, **kwargs)
+    except:
+        from ibeis.control.controller_inject import translate_ibeis_webreturn
+        return translate_ibeis_webreturn(None, success=False, code=500,
+                                         message='Invalid image UUID')
 
 
 @register_api('/api/upload/image/', methods=['POST'])
@@ -74,7 +119,7 @@ def image_upload(cleanup=True, **kwargs):
 
     RESTful:
         Method: POST
-        URL:    /api/image/
+        URL:    /api/upload/image/
     """
     ibs = current_app.ibs
     print('request.files = %s' % (request.files,))
@@ -183,15 +228,35 @@ def image_upload_zip(**kwargs):
 def hello_world(*args, **kwargs):
     """
     CommandLine:
-        python -m ibeis.web.app --exec-hello_world
+        python -m ibeis.web.apis --exec-hello_world:0
+        python -m ibeis.web.apis --exec-hello_world:1
 
     Example:
-        >>> # SCRIPT
+        >>> # WEB_DOCTEST
         >>> from ibeis.web.app import *  # NOQA
         >>> import ibeis
-        >>> web_ibs = ibeis.opendb_bg_web(browser=True, start_job_queue=False, url_suffix='/api/test/helloworld/')
+        >>> web_ibs = ibeis.opendb_bg_web(browser=True, url_suffix='/api/test/helloworld/?test0=0')  # start_job_queue=False)
+        >>> print('Server will run until control c')
+        >>> #web_ibs.terminate2()
+
+    Example1:
+        >>> # WEB_DOCTEST
+        >>> from ibeis.web.app import *  # NOQA
+        >>> import ibeis
+        >>> import requests
+        >>> import ibeis
+        >>> web_ibs = ibeis.opendb_bg_web('testdb1', start_job_queue=False)
+        >>> domain = 'http://127.0.0.1:5000'
+        >>> url = domain + '/api/test/helloworld/?test0=0'
+        >>> payload = {
+        >>>     'test1' : 'test1',
+        >>>     'test2' : None,  # NOTICE test2 DOES NOT SHOW UP
+        >>> }
+        >>> resp = requests.post(url, data=payload)
+        >>> print(resp)
+        >>> web_ibs.terminate2()
     """
-    print('------------------ HELLO WORLD ------------------')
+    print('+------------ HELLO WORLD ------------')
     print('Args: %r' % (args,))
     print('Kwargs: %r' % (kwargs,))
     print('request.args: %r' % (request.args,))
@@ -199,6 +264,14 @@ def hello_world(*args, **kwargs):
     print('request.url; %r' % (request.url,))
     print('request.environ: %s' % (ut.repr3(request.environ),))
     print('request: %s' % (ut.repr3(request.__dict__),))
+    print('L____________ HELLO WORLD ____________')
+
+
+@register_api('/api/test/heartbeat/', methods=['GET', 'POST', 'DELETE', 'PUT'])
+def heartbeat(*args, **kwargs):
+    """
+    """
+    return True
 
 
 if __name__ == '__main__':

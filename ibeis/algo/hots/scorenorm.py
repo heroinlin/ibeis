@@ -202,7 +202,7 @@ def learn_annotscore_normalizer(qreq_, learnkw={}):
                                               part_attrs)
     _learnkw = {'monotonize': True}
     _learnkw.update(learnkw)
-    # timestamp = ut.get_printable_timestamp()
+    # timestamp = ut.get_timestamp()
     encoder = vt.ScoreNormalizer(**_learnkw)
     encoder.fit(scores, labels, attrs=attrs)
     encoder.cfgstr = 'annotscore'
@@ -353,7 +353,7 @@ def learn_featscore_normalizer(qreq_, datakw={}, learnkw={}):
         'qreq_cfg': qreq_.get_full_cfgstr(),
         'qreq_regen_info': getattr(qreq_, '_regen_info', {}),
     }
-    # 'timestamp': ut.get_printable_timestamp(),
+    # 'timestamp': ut.get_timestamp(),
 
     scorecfg_safe = scorecfg
     scorecfg_safe = re.sub('[' + re.escape('()= ') + ']', '', scorecfg_safe)
@@ -437,7 +437,7 @@ def get_training_featscores(qreq_, cm_list, disttype=None, namemode=True,
         python -m ibeis.algo.hots.scorenorm --exec-get_training_featscores
 
     Example:
-        >>> # DISABLE_DOCTEST
+        >>> # ENABLE_DOCTEST
         >>> from ibeis.algo.hots.scorenorm import *  # NOQA
         >>> import ibeis
         >>> cm_list, qreq_ = ibeis.testdata_cmlist(defaultdb='PZ_MTEST', a=['default:qsize=10'])
@@ -448,7 +448,10 @@ def get_training_featscores(qreq_, cm_list, disttype=None, namemode=True,
         >>> thresh = 0.5
         >>> (tp_scores, tn_scores, scorecfg) = get_training_featscores(
         >>>     qreq_, cm_list, disttype, namemode, fsvx, threshx, thresh)
-        >>> print(scorecfg)
+        >>> result = scorecfg
+        >>> print(result)
+        (lnbnn*fg)[fg > 0.5]
+
         lnbnn*fg[fg > 0.5]
     """
     if fsvx is None:
@@ -458,7 +461,7 @@ def get_training_featscores(qreq_, cm_list, disttype=None, namemode=True,
     tp_fsvs_list = []
     tn_fsvs_list = []
 
-    cm_list = [ cm_list[key] for key in sorted(cm_list.keys()) ]
+    #cm_list = [ cm_list[key] for key in sorted(cm_list.keys()) ]
     # Train on only positive examples
     trainable = [
         qreq_.ibs.get_annot_has_groundtruth(cm.qaid, daid_list=cm.daid_list) and
@@ -535,6 +538,7 @@ def get_topannot_training_idxs(cm, num=2):
         >>> (tp_idxs, tn_idxs) = get_topannot_training_idxs(cm, num)
         >>> result = ('(tp_idxs, tn_idxs) = %s' % (ut.repr2((tp_idxs, tn_idxs), nl=1),))
         >>> print(result)
+
         (tp_idxs, tn_idxs) = (
             np.array([0, 1], dtype=np.int64),
             np.array([3, 4], dtype=np.int64),
@@ -590,9 +594,10 @@ def get_topname_training_idxs(cm, num=5):
         >>> (tp_idxs, tn_idxs) = get_topname_training_idxs(cm, num)
         >>> result = ('(tp_idxs, tn_idxs) = %s' % (ut.repr2((tp_idxs, tn_idxs), nl=1),))
         >>> print(result)
+
         (tp_idxs, tn_idxs) = (
-            np.array([0, 1, 2], dtype=np.int64),
-            [3, 4, 5, 6],
+            np.array([0, 1, 2, 3], dtype=np.int64),
+            [4, 5, 6, 7],
         )
     """
     if num is None:

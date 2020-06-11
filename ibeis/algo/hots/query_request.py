@@ -3,10 +3,12 @@
 TODO:
     replace with dtool
     Rename to IdentifyRequest
+
+    python -m utool.util_inspect check_module_usage --pat="query_request.py"
 """
 from __future__ import absolute_import, division, print_function, unicode_literals
 from ibeis.algo.hots import neighbor_index_cache
-from ibeis.algo.hots import multi_index
+#from ibeis.algo.hots import multi_index
 from ibeis.algo.hots import scorenorm
 from ibeis.algo.hots import distinctiveness_normalizer
 from ibeis.algo.hots import query_params
@@ -18,7 +20,7 @@ import six
 import dtool
 import utool as ut
 import numpy as np
-import warnings
+#import warnings
 (print, rrr, profile) = ut.inject2(__name__, '[qreq]')
 
 VERBOSE = ut.VERBOSE or ut.get_argflag(('--verbose-qreq', '--verbqreq'))
@@ -49,7 +51,6 @@ def testdata_qreq():
     return qreq_, ibs
 
 
-@profile
 def new_ibeis_query_request(ibs, qaid_list, daid_list, cfgdict=None,
                             verbose=ut.NOT_QUIET, unique_species=None,
                             use_memcache=True, query_cfg=None):
@@ -117,16 +118,16 @@ def new_ibeis_query_request(ibs, qaid_list, daid_list, cfgdict=None,
         PZ_MTEST_DSUUIDS((5)kmptegpfuwaibfvt)
 
     Ignore:
-        # This is supposed to be the begginings of the code to transition the
+        # This is supposed to be the beginings of the code to transition the
         # pipeline configuration into the new minimal dict based structure that
         # supports different configs for query and database annotations.
-        dcfg = qreq_.get_external_data_config2()
-        qcfg = qreq_.get_external_query_config2()
+        dcfg = qreq_.extern_data_config2
+        qcfg = qreq_.extern_query_config2
         ut.dict_intersection(qcfg.__dict__, dcfg.__dict__)
 
         from ibeis.expt import cfghelpers
         cfg_list = [qcfg.__dict__, dcfg.__dict__]
-        nonvaried_cfg, varied_cfg_list = cfghelpers.partition_varied_cfg_list(
+        nonvaried_cfg, varied_cfg_list = ut.partition_varied_cfg_list(
             cfg_list, recursive=True)
         qvaried, dvaried = varied_cfg_list
     """
@@ -144,10 +145,12 @@ def new_ibeis_query_request(ibs, qaid_list, daid_list, cfgdict=None,
         piperoot = cfgdict['pipeline_root']
     except Exception:
         piperoot = None
-    print('[qreq] piperoot = %r' % (piperoot,))
+    if ut.VERBOSE:
+        print('[qreq] piperoot = %r' % (piperoot,))
     # HACK FOR DEPC REQUESTS including flukes
     if isinstance(cfg, dtool.Config):
-        print('[qreq] dtool.Config HACK')
+        if ut.VERBOSE:
+            print('[qreq] dtool.Config HACK')
         tablename = cfg.get_config_name()
         cfgdict = dict(cfg.parse_items())
         requestclass = ibs.depc_annot.requestclass_dict[tablename]
@@ -155,12 +158,14 @@ def new_ibeis_query_request(ibs, qaid_list, daid_list, cfgdict=None,
             ibs.depc_annot, qaid_list, daid_list, cfgdict, tablename=tablename)
     elif piperoot is not None and piperoot not in ['vsone', 'vsmany']:
         # Hack to ensure that correct depcache style request gets called
-        print('[qreq] piperoot HACK')
+        if ut.VERBOSE:
+            print('[qreq] piperoot HACK')
         requestclass = ibs.depc_annot.requestclass_dict[piperoot]
         qreq_ = request = requestclass.new(  # NOQA
             ibs.depc_annot, qaid_list, daid_list, cfgdict, tablename=piperoot)
     else:
-        print('[qreq] default hots config HACK')
+        if ut.VERBOSE:
+            print('[qreq] default hots config HACK')
         #if cfgdict.get('pipeline_root', None)
         DYNAMIC_K = False
         if DYNAMIC_K and 'K' not in cfgdict:
@@ -195,9 +200,11 @@ def new_ibeis_query_request(ibs, qaid_list, daid_list, cfgdict=None,
         # </HACK>
         _indexer_request_params = dict(use_memcache=use_memcache)
         qreq_ = QueryRequest.new_query_request(
-            qaid_list, daid_list, qparams, qresdir, ibs, _indexer_request_params)
-        qreq_.query_config2_ = query_config2_
-        qreq_.data_config2_ = data_config2_
+            qaid_list, daid_list, qparams, qresdir, ibs,
+            query_config2_, data_config2_,
+            _indexer_request_params)
+        #qreq_.query_config2_ = query_config2_
+        #qreq_.data_config2_ = data_config2_
         qreq_.unique_species = unique_species_  # HACK
         if verbose:
             print('[qreq] * unique_species = %s' % (qreq_.unique_species,))
@@ -211,7 +218,6 @@ def new_ibeis_query_request(ibs, qaid_list, daid_list, cfgdict=None,
     return qreq_
 
 
-@profile
 def apply_species_with_detector_hack(ibs, cfgdict, qaids, daids,
                                      verbose=VERBOSE):
     """
@@ -254,6 +260,7 @@ class QueryRequest(object):
 
     @classmethod
     def new_query_request(cls, qaid_list, daid_list, qparams, qresdir, ibs,
+                          query_config2_, data_config2_,
                           _indexer_request_params):
         """
         old way of calling new
@@ -272,10 +279,18 @@ class QueryRequest(object):
         qreq_ = cls()
         qreq_.ibs = ibs
         qreq_.qparams = qparams   # Parameters relating to pipeline execution
+        qreq_.query_config2_ = query_config2_
+        qreq_.data_config2_ = data_config2_
         qreq_.qresdir = qresdir
         qreq_._indexer_request_params = _indexer_request_params
         qreq_.set_external_daids(daid_list)
         qreq_.set_external_qaids(qaid_list)
+
+        # Load name information so it can change in the database and that's ok.
+        # I'm not 100% into how this works.
+        qreq_.unique_aids = np.union1d(qreq_.qaids, qreq_.daids)
+        qreq_.unique_nids = ibs.get_annot_nids(qreq_.unique_aids)
+        qreq_.aid_to_idx = ut.make_index_lookup(qreq_.unique_aids)
         return qreq_
 
     def __init__(qreq_):
@@ -315,6 +330,11 @@ class QueryRequest(object):
         qreq_.prog_hook = None
         qreq_.lnbnn_normer = None
 
+        # Keeps internal name state
+        qreq_.unique_aids = None
+        qreq_.unique_nids = None
+        qreq_.aid_to_idx = None
+
     def __getstate__(qreq_):
         """
         Make QueryRequest pickleable
@@ -339,6 +359,8 @@ class QueryRequest(object):
         state_dict['dstcnvs_normer'] = None
         state_dict['hasloaded'] = False
         state_dict['lnbnn_normer'] = False
+        state_dict['_internal_dannots'] = None
+        state_dict['_internal_qannots'] = None
         return state_dict
 
     def __setstate__(qreq_, state_dict):
@@ -379,6 +401,15 @@ class QueryRequest(object):
         shortinfo_cfgstr = '_'.join(qreq_.get_shortinfo_parts())
         return shortinfo_cfgstr
 
+    def get_bigcache_info(qreq_):
+        bc_dpath = qreq_.ibs.get_big_cachedir()
+        # TODO: SYSTEM : semantic should only be used if name scoring is on
+        bc_fname = 'BIG_MC4_' + qreq_.get_shortinfo_cfgstr()
+        #bc_cfgstr = ibs.cfg.query_cfg.get_cfgstr()  # FIXME, rectify w/ qparams
+        bc_cfgstr = qreq_.get_full_cfgstr()
+        bc_info = bc_dpath, bc_fname, bc_cfgstr
+        return bc_info
+
     #def __nice__(qreq_):
     #    parts = qreq_.get_shortinfo_parts()
     #    return '(%s) %s %s %s' % (tuple(parts))
@@ -389,8 +420,35 @@ class QueryRequest(object):
     def __str__(qreq_):
         return '<' + qreq_._custom_str() + '>'
 
-    @profile
-    def shallowcopy(qreq_, qaids=None, qx=None, dx=None):
+    def set_external_daids(qreq_, daid_list):
+        if qreq_.qparams.vsmany:
+            qreq_._set_internal_daids(daid_list)
+        else:
+            qreq_._set_internal_qaids(daid_list)
+
+    def set_external_qaids(qreq_, qaid_list):
+        if qreq_.qparams.vsmany:
+            qreq_._set_internal_qaids(qaid_list)
+        else:
+            qreq_._set_internal_daids(qaid_list)
+
+    def _set_internal_daids(qreq_, daid_list):
+        qreq_.internal_daids_mask = None  # Invalidate mask
+        qreq_.internal_daids = np.array(daid_list)
+        # Use new annotation objects
+        config = qreq_.get_internal_data_config2()
+        qreq_._internal_dannots = qreq_.ibs.annots(qreq_.internal_daids,
+                                                   config=config)
+
+    def _set_internal_qaids(qreq_, qaid_list):
+        qreq_.internal_qaids_mask = None  # Invalidate mask
+        qreq_.internal_qaids = np.array(qaid_list)
+        # Use new annotation objects
+        config = qreq_.get_internal_query_config2()
+        qreq_._internal_qannots = qreq_.ibs.annots(qreq_.internal_qaids,
+                                                   config=config)
+
+    def shallowcopy(qreq_, qaids=None):
         """
         Creates a copy of qreq with the same qparams object and a subset of the
         qx and dx objects.  used to generate chunks of vsone and vsmany queries
@@ -403,31 +461,18 @@ class QueryRequest(object):
             >>> from ibeis.algo.hots.query_request import *  # NOQA
             >>> import ibeis
             >>> qreq_, ibs = testdata_qreq()
-            >>> qreq2_ = qreq_.shallowcopy(qx=0)
-            >>> assert qreq_.get_external_daids() is qreq2_.get_external_daids()
-            >>> assert len(qreq_.get_external_qaids()) != len(qreq2_.get_external_qaids())
+            >>> qreq2_ = qreq_.shallowcopy(qaids=1)
+            >>> assert qreq_.daids is qreq2_.daids
+            >>> assert len(qreq_.qaids) != len(qreq2_.qaids)
             >>> #assert qreq_.metadata is not qreq2_.metadata
         """
         #qreq2_ = copy.copy(qreq_)  # copy calls setstate and getstate
         qreq2_ = QueryRequest()
         qreq2_.__dict__.update(qreq_.__dict__)
-        if qx is not None:
-            qaid_list  = qreq2_.get_external_qaids()
-            qaid_list  = qaid_list[qx:qx + 1]
-            qreq2_.set_external_qaids(qaid_list)  # , quuid_list)
-        elif qaids is not None:
-            assert qx is None, 'cannot specify both qx and qaids'
-            qaids = [qaids] if not ut.isiterable(qaids) else qaids
-            _intersect = np.intersect1d(qaids, qreq2_.get_external_qaids())
-            assert len(_intersect) == len(qaids), 'not a subset'
-            qreq2_.set_external_qaids(qaids)  # , quuid_list)
-        if dx is not None:
-            daid_list  = qreq2_.get_external_daids()
-            daid_list  = daid_list[dx:dx + 1]
-            #duuid_list = qreq2_.get_external_duuids()
-            #duuid_list = duuid_list[dx:dx + 1]
-            qreq2_.set_external_daids(daid_list)
-
+        qaids = [qaids] if not ut.isiterable(qaids) else qaids
+        _intersect = np.intersect1d(qaids, qreq2_.qaids)
+        assert len(_intersect) == len(qaids), 'not a subset'
+        qreq2_.set_external_qaids(qaids)  # , quuid_list)
         # The shallow copy does not bring over output / query data
         qreq2_.indexer = None
         #qreq2_.metadata = {}
@@ -436,82 +481,69 @@ class QueryRequest(object):
 
     # --- State Modification ---
 
-    @profile
-    def remove_internal_daids(qreq_, remove_daids):
-        r"""
-        State Modification: remove daids from the query request.  Do not call
-        this function often. It invalidates the indexer, which is very slow to
-        rebuild.  Should only be done between query pipeline runs.
+    #def remove_internal_daids(qreq_, remove_daids):
+    #    r"""
+    #    DEPRICATE
 
-        CommandLine:
-            python -m ibeis.algo.hots.query_request --test-remove_internal_daids
+    #    State Modification: remove daids from the query request.  Do not call
+    #    this function often. It invalidates the indexer, which is very slow to
+    #    rebuild.  Should only be done between query pipeline runs.
 
-        Example:
-            >>> # ENABLE_DOCTEST
-            >>> from ibeis.algo.hots.query_request import *  # NOQA
-            >>> import ibeis
-            >>> # build test data
-            >>> ibs = ibeis.opendb('testdb1')
-            >>> species = ibeis.const.TEST_SPECIES.ZEB_PLAIN
-            >>> daids = ibs.get_valid_aids(species=species, is_exemplar=True)
-            >>> qaids = ibs.get_valid_aids(species=species, is_exemplar=False)
-            >>> qreq_ = ibs.new_query_request(qaids, daids)
-            >>> remove_daids = daids[0:1]
-            >>> # execute function
-            >>> assert len(qreq_.internal_daids) == 4, 'bad setup data'
-            >>> qreq_.remove_internal_daids(remove_daids)
-            >>> # verify results
-            >>> assert len(qreq_.internal_daids) == 3, 'did not remove'
-        """
-        # Invalidate the current indexer, mask and metadata
-        qreq_.indexer = None
-        qreq_.internal_daids_mask = None
-        #qreq_.metadata = {}
-        # Find indices to remove
-        delete_flags = vt.get_covered_mask(qreq_.internal_daids, remove_daids)
-        delete_indices = np.where(delete_flags)[0]
-        assert len(delete_indices) == len(remove_daids), (
-            'requested removal of nonexistant daids')
-        # Remove indices
-        qreq_.internal_daids = np.delete(qreq_.internal_daids, delete_indices)
-        # TODO: multi-indexer delete support
-        if qreq_.indexer is not None:
-            warnings.warn('Implement point removal from trees')
-            qreq_.indexer.remove_ibeis_support(qreq_, remove_daids)
+    #    CommandLine:
+    #        python -m ibeis.algo.hots.query_request --test-remove_internal_daids
 
-    @profile
-    def add_internal_daids(qreq_, new_daids):
-        """
-        State Modification: add new daid to query request. Should only be
-        done between query pipeline runs
-        """
-        if ut.DEBUG2:
-            species = qreq_.ibs.get_annot_species(new_daids)
-            assert set(qreq_.unique_species) == set(species), (
-                'inconsistent species')
-        qreq_.internal_daids_mask = None
-        #qreq_.metadata = {}
-        qreq_.internal_daids = np.append(qreq_.internal_daids, new_daids)
-        # TODO: multi-indexer add support
-        if qreq_.indexer is not None:
-            #qreq_.load_indexer(verbose=True)
-            qreq_.indexer.add_ibeis_support(qreq_, new_daids)
+    #    Example:
+    #        >>> # ENABLE_DOCTEST
+    #        >>> from ibeis.algo.hots.query_request import *  # NOQA
+    #        >>> import ibeis
+    #        >>> # build test data
+    #        >>> ibs = ibeis.opendb('testdb1')
+    #        >>> species = ibeis.const.TEST_SPECIES.ZEB_PLAIN
+    #        >>> daids = ibs.get_valid_aids(species=species, is_exemplar=True)
+    #        >>> qaids = ibs.get_valid_aids(species=species, is_exemplar=False)
+    #        >>> qreq_ = ibs.new_query_request(qaids, daids)
+    #        >>> remove_daids = daids[0:1]
+    #        >>> # execute function
+    #        >>> assert len(qreq_.internal_daids) == 4, 'bad setup data'
+    #        >>> qreq_.remove_internal_daids(remove_daids)
+    #        >>> # verify results
+    #        >>> assert len(qreq_.internal_daids) == 3, 'did not remove'
+    #    """
+    #    # Invalidate the current indexer, mask and metadata
+    #    qreq_.indexer = None
+    #    qreq_.internal_daids_mask = None
+    #    #qreq_.metadata = {}
+    #    # Find indices to remove
+    #    delete_flags = vt.get_covered_mask(qreq_.internal_daids, remove_daids)
+    #    delete_indices = np.where(delete_flags)[0]
+    #    assert len(delete_indices) == len(remove_daids), (
+    #        'requested removal of nonexistant daids')
+    #    # Remove indices
+    #    qreq_.internal_daids = np.delete(qreq_.internal_daids, delete_indices)
+    #    # TODO: multi-indexer delete support
+    #    if qreq_.indexer is not None:
+    #        warnings.warn('Implement point removal from trees')
+    #        qreq_.indexer.remove_ibeis_support(qreq_, remove_daids)
 
-    @profile
-    def set_external_daids(qreq_, daid_list):
-        if qreq_.qparams.vsmany:
-            qreq_.set_internal_daids(daid_list)
-        else:
-            qreq_.set_internal_qaids(daid_list)
+    #def add_internal_daids(qreq_, new_daids):
+    #    """
+    #    DEPRICATE
 
-    @profile
-    def set_external_qaids(qreq_, qaid_list):
-        if qreq_.qparams.vsmany:
-            qreq_.set_internal_qaids(qaid_list)
-        else:
-            qreq_.set_internal_daids(qaid_list)
+    #    State Modification: add new daid to query request. Should only be
+    #    done between query pipeline runs
+    #    """
+    #    if ut.DEBUG2:
+    #        species = qreq_.ibs.get_annot_species(new_daids)
+    #        assert set(qreq_.unique_species) == set(species), (
+    #            'inconsistent species')
+    #    qreq_.internal_daids_mask = None
+    #    #qreq_.metadata = {}
+    #    qreq_.internal_daids = np.append(qreq_.internal_daids, new_daids)
+    #    # TODO: multi-indexer add support
+    #    if qreq_.indexer is not None:
+    #        #qreq_.load_indexer(verbose=True)
+    #        qreq_.indexer.add_ibeis_support(qreq_, new_daids)
 
-    @profile
     def set_external_qaid_mask(qreq_, masked_qaid_list):
         r"""
         Args:
@@ -530,7 +562,7 @@ class QueryRequest(object):
             >>> qreq_ = ibs.new_query_request(qaid_list, daid_list)
             >>> masked_qaid_list = [2, 4, 5]
             >>> qreq_.set_external_qaid_mask(masked_qaid_list)
-            >>> result = np.array_str(qreq_.get_external_qaids())
+            >>> result = np.array_str(qreq_.qaids)
             >>> print(result)
             [1 3]
         """
@@ -541,7 +573,6 @@ class QueryRequest(object):
 
     # --- Internal Annotation ID Masks ----
 
-    @profile
     def set_internal_masked_daids(qreq_, masked_daid_list):
         """ used by the pipeline to execute a subset of the query request
         without modifying important state """
@@ -557,7 +588,6 @@ class QueryRequest(object):
                 'unequal len internal daids')
             qreq_.internal_daids_mask = flags
 
-    @profile
     def set_internal_masked_qaids(qreq_, masked_qaid_list):
         r"""
         used by the pipeline to execute a subset of the query request
@@ -590,74 +620,36 @@ class QueryRequest(object):
                 'unequal len internal qaids')
             qreq_.internal_qaids_mask = flags
 
-    @profile
-    def set_internal_unmasked_qaids(qreq_, unmasked_qaid_list):
-        """
-        used by the pipeline to execute a subset of the query request
-        without modifying important state
-
-        Example:
-            >>> # ENABLE_DOCTEST
-            >>> from ibeis.algo.hots.query_request import *  # NOQA
-            >>> import utool as ut
-            >>> import ibeis
-            >>> qaid_list = [1, 2, 3, 4]
-            >>> daid_list = [1, 2, 3, 4]
-            >>> qreq_ = ibeis.testdata_qreq_(qaid_override=qaid_list, daid_override=daid_list, p='default:codename=vsone,sv_on=True')
-            >>> qaids = qreq_.get_internal_qaids()
-            >>> ut.assert_lists_eq(qaid_list, qaids)
-            >>> unmasked_qaid_list = [1, 2, 3,]
-            >>> qreq_.set_internal_unmasked_qaids(unmasked_qaid_list)
-            >>> new_internal_aids = qreq_.get_internal_qaids()
-            >>> ut.assert_lists_eq(new_internal_aids, unmasked_qaid_list)
-        """
-        if unmasked_qaid_list is None:
-            qreq_.internal_qaids_mask = None
-        else:
-            # input denotes valid elements
-            # mark all elements not in that list as False
-            flags = vt.get_covered_mask(
-                qreq_.internal_qaids, unmasked_qaid_list)
-            assert len(flags) == len(qreq_.internal_qaids), (
-                'unequal len internal qaids')
-            qreq_.internal_qaids_mask = flags
-
-    # --- Internal Annotation IDs ----
-
-    @profile
-    def set_internal_daids(qreq_, daid_list):
-        qreq_.internal_daids_mask = None  # Invalidate mask
-        qreq_.internal_daids = np.array(daid_list)
-
-    @profile
-    def set_internal_qaids(qreq_, qaid_list):
-        qreq_.internal_qaids_mask = None  # Invalidate mask
-        qreq_.internal_qaids = np.array(qaid_list)
-
     # --- INTERNAL INTERFACE ---
     # For within pipeline use only
 
-    @profile
+    @property
+    def internal_qannots(qreq_):
+        if qreq_.internal_qaids_mask is None:
+            return qreq_._internal_qannots
+        else:
+            return qreq_._internal_qannots.compress(qreq_.internal_qaids_mask)
+
+    @property
+    def internal_dannots(qreq_):
+        if qreq_.internal_daids_mask is None:
+            return qreq_._internal_dannots
+        else:
+            return qreq_._internal_dannots.compress(qreq_.internal_daids_mask)
+
     def get_internal_daids(qreq_):
+        #return np.array(qreq_.internal_dannots.aid)
         if qreq_.internal_daids_mask is None:
             return qreq_.internal_daids
         else:
-            return qreq_.internal_daids[qreq_.internal_daids_mask]
+            return qreq_.internal_daids.compress(qreq_.internal_daids_mask, axis=0)
 
-    @profile
     def get_internal_qaids(qreq_):
+        #return np.array(qreq_.internal_qannots.aid)
         if qreq_.internal_qaids_mask is None:
             return qreq_.internal_qaids
         else:
-            return qreq_.internal_qaids[qreq_.internal_qaids_mask]
-
-    @profile
-    def get_internal_duuids(qreq_):
-        return qreq_.ibs.get_annot_semantic_uuids(qreq_.get_internal_daids())
-
-    @profile
-    def get_internal_quuids(qreq_):
-        return qreq_.ibs.get_annot_semantic_uuids(qreq_.get_internal_qaids())
+            return qreq_.internal_qaids.compress(qreq_.internal_qaids_mask, axis=0)
 
     def get_internal_data_config2(qreq_):
         return (qreq_.data_config2_ if qreq_.qparams.vsmany else
@@ -667,12 +659,6 @@ class QueryRequest(object):
         return (qreq_.query_config2_ if qreq_.qparams.vsmany else
                 qreq_.data_config2_)
 
-    def get_external_data_config2(qreq_):
-        return qreq_.data_config2_
-
-    def get_external_query_config2(qreq_):
-        return qreq_.query_config2_
-
     # --- EXTERNAL INTERFACE ---
 
     def get_unique_species(qreq_):
@@ -681,57 +667,79 @@ class QueryRequest(object):
     # External id-lists
 
     @property
+    def qannots(qreq_):
+        """ internal query annotation objects """
+        if qreq_.qparams.vsmany:
+            return qreq_.internal_qannots
+        else:
+            return qreq_._internal_dannots
+
+    @property
+    def dannots(qreq_):
+        """ external query annotation objects """
+        if qreq_.qparams.vsmany:
+            return qreq_._internal_dannots
+        else:
+            return qreq_.internal_qannots
+
+    @property
     def daids(qreq_):
-        return qreq_.get_external_daids()
-
-    @property
-    def qaids(qreq_):
-        return qreq_.get_external_qaids()
-
-    @property
-    def extern_data_config2(qreq_):
-        return qreq_.get_external_data_config2()
-
-    @property
-    def extern_query_config2(qreq_):
-        return qreq_.get_external_query_config2()
-
-    @profile
-    def get_external_daids(qreq_):
+        #return qreq_.get_external_daids()
         """ These are the users daids in vsone mode """
         if qreq_.qparams.vsmany:
             return qreq_.get_internal_daids()
         else:
             return qreq_.get_internal_qaids()
 
-    @profile
-    def get_external_qaids(qreq_):
+    @property
+    def qaids(qreq_):
+        #return qreq_.get_external_qaids()
         """ These are the users qaids in vsone mode """
         if qreq_.qparams.vsmany:
             return qreq_.get_internal_qaids()
         else:
             return qreq_.get_internal_daids()
 
-    @profile
-    def get_external_quuids(qreq_):
-        """ These are the users qauuids in vsone mode """
-        if qreq_.qparams.vsmany:
-            return qreq_.get_internal_quuids()
-        else:
-            return qreq_.get_internal_duuids()
+    @ut.accepts_numpy
+    def get_qreq_annot_nids(qreq_, aids):
+        # Hack uses own internal state to grab name rowids
+        # instead of using ibeis.
+        #import utool
+        #with utool.embed_on_exception_context:
+        idxs = ut.take(qreq_.aid_to_idx, aids)
+        nids = ut.take(qreq_.unique_nids, idxs)
+        return nids
 
-    @profile
-    def get_external_duuids(qreq_):
-        """ These are the users qauuids in vsone mode """
-        if qreq_.qparams.vsmany:
-            return qreq_.get_internal_duuids()
-        else:
-            return qreq_.get_internal_quuids()
+    def get_qreq_qannot_kpts(qreq_, qaids):
+        return qreq_.ibs.get_annot_kpts(qaids, config2_=qreq_.extern_query_config2)
 
-    @profile
+    def get_qreq_dannot_kpts(qreq_, qaids):
+        return qreq_.ibs.get_annot_kpts(qaids, config2_=qreq_.extern_data_config2)
+
+    @property
+    def dnids(qreq_):
+        """ TODO: save dnids in qreq_ state """
+        #return qreq_.dannots.nids
+        return qreq_.get_qreq_annot_nids(qreq_.daids)
+
+    @property
+    def qnids(qreq_):
+        """ TODO: save qnids in qreq_ state """
+        #return qreq_.qannots.nids
+        return qreq_.get_qreq_annot_nids(qreq_.qaids)
+
+    @property
+    def extern_data_config2(qreq_):
+        return qreq_.data_config2_
+        #return qreq_.extern_data_config2
+
+    @property
+    def extern_query_config2(qreq_):
+        return qreq_.query_config2_
+
     def get_external_query_groundtruth(qreq_, qaids):
         """ gets groundtruth that are accessible via this query """
-        external_daids = qreq_.get_external_daids()
+        external_daids = qreq_.daids
         gt_aids = qreq_.ibs.get_annot_groundtruth(
             qaids, daid_list=external_daids)
         return gt_aids
@@ -740,11 +748,11 @@ class QueryRequest(object):
 
     #@ut.memoize
     def get_data_hashid(qreq_):
-        daids = qreq_.get_external_daids()
-        try:
-            assert len(daids) > 0, 'QRequest not populated. len(daids)=0'
-        except AssertionError as ex:
-            ut.printex(ex, iswarning=True)
+        daids = qreq_.daids
+        #try:
+        #    assert len(daids) > 0, 'QRequest not populated. len(daids)=0'
+        #except AssertionError as ex:
+        #    ut.printex(ex, iswarning=True)
         # TODO: SYSTEM : semantic should only be used if name scoring is on
         data_hashid = qreq_.ibs.get_annot_hashid_semantic_uuid(
             daids, prefix='D')
@@ -765,24 +773,12 @@ class QueryRequest(object):
             >>> result = ('query_hashid = %s' % (ut.repr2(query_hashid),))
             >>> print(result)
         """
-        qaids = qreq_.get_external_qaids()
-        assert len(qaids) > 0, 'QRequest not populated. len(qaids)=0'
+        qaids = qreq_.qaids
+        #assert len(qaids) > 0, 'QRequest not populated. len(qaids)=0'
         # TODO: SYSTEM : semantic should only be used if name scoring is on
         query_hashid = qreq_.ibs.get_annot_hashid_semantic_uuid(
             qaids, prefix='Q')
         return query_hashid
-
-    def get_internal_query_hashid(qreq_):
-        if qreq_.qparams.vsmany:
-            return qreq_.get_query_hashid()
-        else:
-            return qreq_.get_data_hashid()
-
-    def get_internal_data_hashid(qreq_):
-        if qreq_.qparams.vsmany:
-            return qreq_.get_data_hashid()
-        else:
-            return qreq_.get_query_hashid()
 
     def get_pipe_cfgstr(qreq_):
         """
@@ -799,7 +795,6 @@ class QueryRequest(object):
         pipe_hashstr = ut.hashstr27(qreq_.get_pipe_cfgstr())
         return pipe_hashstr
 
-    @profile
     def get_cfgstr(qreq_, with_input=False, with_data=True, with_pipe=True,
                    hash_pipe=False):
         r"""
@@ -822,11 +817,9 @@ class QueryRequest(object):
             >>> # ENABLE_DOCTEST
             >>> from ibeis.algo.hots.query_request import *  # NOQA
             >>> import ibeis
-            >>> ibs = ibeis.opendb(defaultdb='testdb1')
-            >>> species = ibeis.const.TEST_SPECIES.ZEB_PLAIN
-            >>> daids = ibs.get_valid_aids(species=species)
-            >>> qaids = ibs.get_valid_aids(species=species)
-            >>> qreq_ = ibs.new_query_request(qaids, daids)
+            >>> qreq_ = ibeis.testdata_qreq_(defaultdb='testdb1',
+            >>>                              p='default:fgw_thresh=.3',
+            >>>                              a='default:species=zebra_plains')
             >>> with_input = True
             >>> cfgstr = qreq_.get_cfgstr(with_input)
             >>> result = ('cfgstr = %s' % (str(cfgstr),))
@@ -859,7 +852,7 @@ class QueryRequest(object):
     # --- Lazy Loading ---
 
     @profile
-    def lazy_preload(qreq_, verbose=ut.NOT_QUIET):
+    def lazy_preload(qreq_, prog_hook=None, verbose=ut.NOT_QUIET):
         """
         feature weights and normalizers should be loaded before vsone queries
         are issued. They do not depened only on qparams
@@ -868,13 +861,35 @@ class QueryRequest(object):
         """
         if verbose:
             print('[qreq] lazy preloading')
-        qreq_.ensure_features(verbose=verbose)
+        if prog_hook is not None:
+            prog_hook.initialize_subhooks(4)
+
+        qreq_.qannots.preload('nids')
+        qreq_.dannots.preload('nids')
+
+        subhook = None if prog_hook is None else prog_hook.next_subhook()
+        qreq_.ensure_features(verbose=verbose, prog_hook=subhook)
+
+        subhook = None if prog_hook is None else prog_hook.next_subhook()
+        if subhook is not None:
+            subhook(0, 1, 'preload featweights')
         if qreq_.qparams.fg_on is True:
             qreq_.ensure_featweights(verbose=verbose)
+
+        subhook = None if prog_hook is None else prog_hook.next_subhook()
+        if subhook is not None:
+            subhook(0, 1, 'finishing preload')
         if qreq_.qparams.score_normalization is True:
             qreq_.load_score_normalizer(verbose=verbose)
+
         if qreq_.qparams.use_external_distinctiveness:
             qreq_.load_distinctiveness_normalizer(verbose=verbose)
+
+        subhook = None if prog_hook is None else prog_hook.next_subhook()
+        if subhook is not None:
+            subhook(0, 1, 'finished preload')
+        #if hook is not None:
+        #    hook.set_progress(4, 4, lbl='preloading features')
 
     @profile
     def lazy_load(qreq_, verbose=ut.NOT_QUIET):
@@ -882,7 +897,6 @@ class QueryRequest(object):
         Performs preloading of all data needed for a batch of queries
         """
         print('[qreq] lazy loading')
-        #with ut.Indenter('[qreq.lazy_load]'):
         qreq_.hasloaded = True
         #qreq_.ibs = ibs  # HACK
         qreq_.lazy_preload(verbose=verbose)
@@ -893,20 +907,20 @@ class QueryRequest(object):
 
     # load query data structures
     @profile
-    def ensure_chips(qreq_, verbose=ut.NOT_QUIET, extra_tries=1):
+    def ensure_chips(qreq_, verbose=ut.NOT_QUIET, num_retries=1):
         r"""
         ensure chips are computed (used in expt, not used in pipeline)
 
         Args:
             verbose (bool):  verbosity flag(default = True)
-            extra_tries (int): (default = 0)
+            num_retries (int): (default = 0)
 
         CommandLine:
             python -m ibeis.algo.hots.query_request --test-ensure_chips
 
         Example:
             >>> # ENABLE_DOCTEST
-            >>> # Delete chips (accidentally) then try to run a query
+            >>> # Delete chips (accidentally), then try to run a query
             >>> from ibeis.algo.hots.query_request import *  # NOQA
             >>> import ibeis
             >>> ibs = ibeis.opendb(defaultdb='testdb1')
@@ -914,34 +928,34 @@ class QueryRequest(object):
             >>> qaids = ibs.get_valid_aids()[0:6]
             >>> qreq_ = ibs.new_query_request(qaids, daids)
             >>> verbose = True
-            >>> extra_tries = 1
+            >>> num_retries = 1
             >>> qchip_fpaths = ibs.get_annot_chip_fpath(qaids, config2_=qreq_.extern_query_config2)
             >>> dchip_fpaths = ibs.get_annot_chip_fpath(daids, config2_=qreq_.extern_data_config2)
             >>> ut.remove_file_list(qchip_fpaths)
             >>> ut.remove_file_list(dchip_fpaths)
-            >>> result = qreq_.ensure_chips(verbose, extra_tries)
+            >>> result = qreq_.ensure_chips(verbose, num_retries)
             >>> print(result)
         """
         if verbose:
             print('[qreq] ensure_chips')
-        external_qaids = qreq_.get_external_qaids()
-        external_daids = qreq_.get_external_daids()
+        external_qaids = qreq_.qaids
+        external_daids = qreq_.daids
         #np.union1d(external_qaids, external_daids)
         # TODO check if configs are the same
         externgetkw = dict(
             ensure=True,
             check_external_storage=True,
-            extra_tries=extra_tries
+            num_retries=num_retries
         )
         q_chip_fpath = qreq_.ibs.get_annot_chip_fpath(  # NOQA
             external_qaids,
-            config2_=qreq_.get_external_query_config2(), **externgetkw)
+            config2_=qreq_.extern_query_config2, **externgetkw)
         d_chip_fpath = qreq_.ibs.get_annot_chip_fpath(  # NOQA
             external_daids,
-            config2_=qreq_.get_external_data_config2(), **externgetkw)
+            config2_=qreq_.extern_data_config2, **externgetkw)
 
     @profile
-    def ensure_features(qreq_, verbose=ut.NOT_QUIET):
+    def ensure_features(qreq_, verbose=ut.NOT_QUIET, prog_hook=None):
         r""" ensure features are computed
         Args:
             verbose (bool):  verbosity flag(default = True)
@@ -954,11 +968,11 @@ class QueryRequest(object):
             >>> from ibeis.algo.hots.query_request import *  # NOQA
             >>> import ibeis
             >>> ibs = ibeis.opendb(defaultdb='testdb1')
-            >>> daids = ibs.get_valid_aids()[0:3]
-            >>> qaids = ibs.get_valid_aids()[0:6]
+            >>> daids = ibs.get_valid_aids()[0:2]
+            >>> qaids = ibs.get_valid_aids()[0:3]
             >>> qreq_ = ibs.new_query_request(qaids, daids)
-            >>> ibs.delete_annot_feats(qaids,  config2_=qreq_.get_external_query_config2())  # Remove the chips
-            >>> ut.remove_file_list(ibs.get_annot_chip_fpath(qaids, config2_=qreq_.get_external_query_config2()))
+            >>> ibs.delete_annot_feats(qaids,  config2_=qreq_.extern_query_config2)  # Remove the chips
+            >>> ut.remove_file_list(ibs.get_annot_chip_fpath(qaids, config2_=qreq_.extern_query_config2))
             >>> verbose = True
             >>> result = qreq_.ensure_features(verbose)
             >>> print(result)
@@ -966,29 +980,39 @@ class QueryRequest(object):
         #with ut.EmbedOnException():
         if verbose:
             print('[qreq] ensure_features')
-        external_qaids = qreq_.get_external_qaids()
-        external_daids = qreq_.get_external_daids()
+        if prog_hook is not None:
+            prog_hook(0, 3, 'ensure features')
+        external_qaids = qreq_.qaids
+        external_daids = qreq_.daids
+        if prog_hook is not None:
+            prog_hook(1, 3, 'ensure query features')
+        qreq_.qannots.preload('kpts', 'vecs')
         qfids = qreq_.ibs.get_annot_feat_rowids(  # NOQA
             external_qaids, ensure=True,
-            config2_=qreq_.get_external_query_config2())
+            config2_=qreq_.extern_query_config2)
+        if prog_hook is not None:
+            prog_hook(2, 3, 'ensure database features')
+        qreq_.dannots.preload('kpts')
         dfids = qreq_.ibs.get_annot_feat_rowids(  # NOQA
             external_daids, ensure=True,
-            config2_=qreq_.get_external_data_config2())
-        if ut.DEBUG2:
-            qkpts = qreq_.ibs.get_annot_kpts(
-                external_qaids, ensure=False,
-                config2_=qreq_.get_external_query_config2())
-            dkpts = qreq_.ibs.get_annot_kpts(  # NOQA
-                external_daids, ensure=False,
-                config2_=qreq_.get_external_data_config2())
-            #if verbose:
-            try:
-                assert len(qkpts) > 0, 'no query keypoint'
-                assert qkpts[0].size > 0, (
-                    'Query keypoints are corrupted! qkpts=%r' % (qkpts,))
-            except Exception:
-                print('qkpts = %r' % (qkpts,))
-                raise
+            config2_=qreq_.extern_data_config2)
+        if prog_hook is not None:
+            prog_hook(3, 3, 'computed features')
+        #if ut.DEBUG2:
+        #    qkpts = qreq_.ibs.get_annot_kpts(
+        #        external_qaids, ensure=False,
+        #        config2_=qreq_.extern_query_config2)
+        #    dkpts = qreq_.ibs.get_annot_kpts(  # NOQA
+        #        external_daids, ensure=False,
+        #        config2_=qreq_.extern_data_config2)
+        #    #if verbose:
+        #    try:
+        #        assert len(qkpts) > 0, 'no query keypoint'
+        #        assert qkpts[0].size > 0, (
+        #            'Query keypoints are corrupted! qkpts=%r' % (qkpts,))
+        #    except Exception:
+        #        print('qkpts = %r' % (qkpts,))
+        #        raise
 
     @profile
     def ensure_featweights(qreq_, verbose=ut.NOT_QUIET):
@@ -1000,21 +1024,23 @@ class QueryRequest(object):
         #internal_daids = qreq_.get_internal_daids()
         #qreq_.ibs.get_annot_fgweights(internal_qaids, ensure=True, config2_=qreq_.qparams)
         #qreq_.ibs.get_annot_fgweights(internal_daids, ensure=True, config2_=qreq_.qparams)
-        external_qaids = qreq_.get_external_qaids()
-        external_daids = qreq_.get_external_daids()
+        external_qaids = qreq_.qaids
+        external_daids = qreq_.daids
+        qreq_.qannots.preload('fgweights')
         qfw_rowids = qreq_.ibs.get_annot_featweight_rowids(  # NOQA
             external_qaids, ensure=True,
-            config2_=qreq_.get_external_query_config2())
+            config2_=qreq_.extern_query_config2)
+        qreq_.dannots.preload('fgweights')
         dfw_rowids = qreq_.ibs.get_annot_featweight_rowids(  # NOQA
             external_daids, ensure=True,
-            config2_=qreq_.get_external_data_config2())
+            config2_=qreq_.extern_data_config2)
         if ut.DEBUG2:
             qfeatweights = qreq_.ibs.get_annot_fgweights(
                 external_qaids, ensure=True,
-                config2_=qreq_.get_external_query_config2())
+                config2_=qreq_.extern_query_config2)
             dfeatweights = qreq_.ibs.get_annot_fgweights(  # NOQA
                 external_daids, ensure=True,
-                config2_=qreq_.get_external_data_config2())
+                config2_=qreq_.extern_data_config2)
             #if verbose:
             try:
                 assert len(qfeatweights) > 0, 'no query featweights'
@@ -1031,24 +1057,31 @@ class QueryRequest(object):
             #print(ut.hashstr27(str(dfeatweights)))
 
     @profile
-    def load_indexer(qreq_, verbose=ut.NOT_QUIET, force=False):
+    def load_indexer(qreq_, verbose=ut.NOT_QUIET, force=False, prog_hook=None):
         if not force and qreq_.indexer is not None:
+            if prog_hook is not None:
+                prog_hook.set_progress(1, 1, lbl='Indexer is loaded')
             return False
         else:
             index_method = qreq_.qparams.index_method
+            if prog_hook is not None:
+                prog_hook.set_progress(0, 1, lbl='Loading %s indexer' % (index_method,))
             if index_method == 'single':
                 # TODO: SYSTEM updatable indexer
                 if ut.VERYVERBOSE or verbose:
                     print('[qreq] loading single indexer normalizer')
                 indexer = neighbor_index_cache.request_ibeis_nnindexer(
-                    qreq_, verbose=verbose, **qreq_._indexer_request_params)
-            elif index_method == 'multi':
-                if ut.VERYVERBOSE or verbose:
-                    print('[qreq] loading multi indexer normalizer')
-                indexer = multi_index.request_ibeis_mindexer(
-                    qreq_, verbose=verbose)
+                    qreq_, verbose=verbose, prog_hook=prog_hook,
+                    **qreq_._indexer_request_params)
+            #elif index_method == 'multi':
+            #    if ut.VERYVERBOSE or verbose:
+            #        print('[qreq] loading multi indexer normalizer')
+            #    indexer = multi_index.request_ibeis_mindexer(
+            #        qreq_, verbose=verbose)
             else:
                 raise AssertionError('uknown index_method=%r' % (index_method,))
+            #if qreq_.prog_hook is not None:
+            #    hook.set_progress(4, 4, lbl='building indexer')
             qreq_.indexer = indexer
             return True
 
@@ -1063,7 +1096,6 @@ class QueryRequest(object):
             qreq_, verbose=verbose)
         qreq_.normalizer = normalizer
 
-    @profile
     def load_distinctiveness_normalizer(qreq_, verbose=ut.NOT_QUIET):
         """
         Example:
@@ -1082,10 +1114,6 @@ class QueryRequest(object):
         if verbose:
             print('qreq_.dstcnvs_normer = %r' % (qreq_.dstcnvs_normer,))
 
-    @profile
-    def load_lnbnn_normalizer(qreq_, verbose=ut.NOT_QUIET):
-        pass
-
     def get_infostr(qreq_):
         infostr_list = []
         app = infostr_list.append
@@ -1098,22 +1126,40 @@ class QueryRequest(object):
         infostr = '\n'.join(infostr_list)
         return infostr
 
-    def assert_self(qreq_, ibs):
+    def assert_self(qreq_):
+        r"""
+        Args:
+            ibs (ibeis.IBEISController):  image analysis api
+
+        CommandLine:
+            python -m ibeis.algo.hots.query_request assert_self --show
+
+        Example:
+            >>> # DISABLE_DOCTEST
+            >>> from ibeis.algo.hots.query_request import *  # NOQA
+            >>> import ibeis
+            >>> qreq_ = ibeis.testdata_qreq_()
+            >>> result = qreq_.assert_self()
+            >>> print(result)
+            >>> ut.quit_if_noshow()
+            >>> import plottool as pt
+            >>> ut.show_if_requested()
+        """
         print('[qreq] ASSERT SELF')
-        qaids    = qreq_.get_external_qaids()
-        qauuids  = qreq_.get_external_quuids()
-        daids    = qreq_.get_external_daids()
-        dauuids  = qreq_.get_external_duuids()
+        qaids    = qreq_.qaids
+        qauuids  = qreq_.qannots.semantic_uuids
+        daids    = qreq_.daids
+        dauuids  = qreq_.dannots.semantic_uuids
         _qaids   = qreq_.get_internal_qaids()
-        _qauuids = qreq_.get_internal_quuids()
+        _qauuids = qreq_.internal_qannots.semantic_uuids
         _daids   = qreq_.get_internal_daids()
-        _dauuids = qreq_.get_internal_duuids()
+        _dauuids = qreq_.internal_dannots.semantic_uuids
         def assert_uuids(aids, uuids):
             if ut.NOT_QUIET:
                 print('[qreq_] asserting %s aids' % len(aids))
             assert len(aids) == len(uuids)
             assert all([u1 == u2 for u1, u2 in
-                        zip(ibs.get_annot_semantic_uuids(aids), uuids)])
+                        zip(qreq_.ibs.get_annot_semantic_uuids(aids), uuids)])
         assert_uuids(qaids, qauuids)
         assert_uuids(daids, dauuids)
         assert_uuids(_qaids, _qauuids)
@@ -1139,8 +1185,8 @@ class QueryRequest(object):
             >>> result = ('cm_list = %s' % (str(cm_list),))
             >>> print(result)
         """
-        external_qaids  = qreq_.get_external_qaids()
-        #external_daids = qreq_.get_external_daids()
+        external_qaids  = qreq_.qaids
+        #external_daids = qreq_.daids
         #external_dnids = qreq_.ibs.get_annot_name_rowids(external_daids)
         # FIXME: hacky
         cm_list = [
@@ -1152,18 +1198,7 @@ class QueryRequest(object):
 
         return cm_list
 
-    @profile
     def get_chipmatch_fpaths(qreq_, qaid_list):
-        """
-        Efficient function to get a list of chipmatch paths
-        """
-        fname_list = qreq_.get_result_fnames(qaid_list)
-        dpath = qreq_.get_qresdir()
-        fpath_list = [join(dpath, fname) for fname in fname_list]
-        return fpath_list
-
-    @profile
-    def get_result_fnames(qreq_, qaid_list):
         """
         Efficient function to get a list of chipmatch paths
         """
@@ -1174,23 +1209,47 @@ class QueryRequest(object):
                                            cfgstr=cfgstr)
             for qaid, qauuid in zip(qaid_list, qauuid_list)
         ]
-        return fname_list
+        dpath = qreq_.get_qresdir()
+        fpath_list = [join(dpath, fname) for fname in fname_list]
+        return fpath_list
 
-    def execute(qreq_, qaids=None):
+    def execute(qreq_, qaids=None, prog_hook=None):
+        """
+
+        CommandLine:
+            python -m ibeis.algo.hots.query_request execute --show
+
+        Example:
+            >>> # SLOW_DOCTEST
+            >>> from ibeis.algo.hots.query_request import *  # NOQA
+            >>> import ibeis
+            >>> ibs = ibeis.test_main(db='testdb1')
+            >>> qaids = [1]
+            >>> daids = [1, 2, 3, 4, 5]
+            >>> qreq_ = ibs.new_query_request(qaids, daids)
+            >>> cm_list = qreq_.execute()
+            >>> # Show results
+            >>> ut.quit_if_noshow()
+            >>> cm = cm_list[0]
+            >>> cm.ishow_analysis(qreq_)
+            >>> ut.show_if_requested()
+        """
         if qaids is not None:
             shallow_qreq_ = qreq_.shallowcopy(qaids=qaids)
             cm_list = qreq_.ibs.query_chips(qreq_=shallow_qreq_,
-                                            use_bigcache=False)
+                                            use_bigcache=False,
+                                            prog_hook=prog_hook)
         else:
             # TODO: move the entire query_chips logic here
-            cm_list = qreq_.ibs.query_chips(qreq_=qreq_)
+            cm_list = qreq_.ibs.query_chips(qreq_=qreq_, prog_hook=prog_hook)
         return cm_list
 
-    def execute_subset(qreq_, qaids=None):
+    def execute_subset(qreq_, qaids=None, prog_hook=None):
         if qaids is not None:
             shallow_qreq_ = qreq_.shallowcopy(qaids=qaids)
             cm_list = qreq_.ibs.query_chips(qreq_=shallow_qreq_,
-                                            use_bigcache=False)
+                                            use_bigcache=False,
+                                            prog_hook=prog_hook)
         else:
             cm_list = qreq_.ibs.query_chips(qreq_=qreq_)
         return cm_list

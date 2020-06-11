@@ -6,11 +6,29 @@ This module lists known raw databases and how to ingest them.
 Specify arguments and run the following command to ingest a database
 
 python -m ibeis --tf ingest_rawdata --db seaturtles  --imgdir "~/turtles/Turtles from Jill" --ingest-type=named_folders --species=turtles
+python -m ibeis --tf ingest_rawdata --db PZ_OlPej2016 --imgdir /raid/raw/OlPejPZ_June_2016 --ingest-type=named_folders --species=zebra_plains
 
 # --- GET DATA ---
 rsync -avhzP <user>@<host>:<remotedir>  <path-to-raw-imgs>
 # --- RUN INGEST SCRIPT ---
 python -m ibeis --tf ingest_rawdata --db <new-ibeis-db-name> --imgdir <path-to-raw-imgs> --ingest-type=named_folders --species=<optional> --fmtkey=<optional>
+
+
+
+Example:
+    >>> # The scripts in this file essentiall do this:
+    >>> dbdir = <your new database directory>
+    >>> gpath_list = <path to your images>
+    >>> ibs = ibeis.opendb(dbdir=dbdir, allow_newdir=True)
+    >>> gid_list_ = ibs.add_images(gpath_list, auto_localize=False)  # NOQA
+    >>> # use whole images as annotations
+    >>> aid_list = ibs.use_images_as_annotations(gid_list_, adjust_percent=0)
+    >>> # Extra stuff
+    >>> name_list = <names that correspond to your annots>
+    >>> ibs.set_annot_names(aid_list, name_list)
+    >>> occur_text_list = <occurrence that images belongs to>
+    >>> ibs.set_image_imagesettext(gid_list_, occur_text_list)
+    >>> ibs.append_annot_case_tags(aid_list, <annotation tags>)
 """
 from __future__ import absolute_import, division, print_function
 from six.moves import zip, map, range
@@ -81,7 +99,9 @@ class Ingestable2(object):
                 ut.ParamInfo(
                     'images_as_annots', True),
                 ut.ParamInfo(
-                    'ingest_type', 'unknown', valid_values=['unknown', 'named_folders', 'named_images']),
+                    'ingest_type', 'unknown', valid_values=['unknown',
+                                                            'named_folders',
+                                                            'named_images']),
                 ut.ParamInfo(
                     'species', '____',
                     hideif=lambda cfg: not cfg['images_as_annots'],
@@ -105,7 +125,8 @@ class Ingestable2(object):
             ut.ensuredir(unzipped_file_base_dir)
             for zipfile in zipfile_list:
                 img_dir = unzipped_file_base_dir
-                unziped_file_relpath = dirname(relpath(relpath(realpath(zipfile), realpath(img_dir))))
+                unziped_file_relpath = dirname(relpath(relpath(realpath(zipfile),
+                                                               realpath(img_dir))))
                 unzipped_file_dir = join(unzipped_file_base_dir, unziped_file_relpath)
                 ut.ensuredir(unzipped_file_dir)
                 ut.unzip_file(zipfile, output_dir=unzipped_file_dir, overwrite=False)
@@ -226,7 +247,7 @@ def ingest_rawdata(ibs, ingestable, localize=False):
         >>>     fmtkey=fmtkey, species=species, images_as_annots=ingest_type != 'unknown',
         >>>     adjust_percent=0.00)
         >>> from ibeis.control import IBEISControl
-        >>> dbdir = ibeis.sysres.db_to_dbdir(dbname, allow_newdir=True, use_sync=False)
+        >>> dbdir = ibeis.sysres.db_to_dbdir(dbname, allow_newdir=True)
         >>> ut.ensuredir(dbdir, verbose=True)
         >>> if force_delete:
         >>>     ibsfuncs.delete_ibeis_database(dbdir)
@@ -394,6 +415,7 @@ def ingest_rawdata(ibs, ingestable, localize=False):
     #ibs.print_lblannot_table()
     #ibs.print_image_table()
     #return aid_list
+    return gid_list
 
 
 def normalize_name(name):
@@ -602,16 +624,16 @@ def ingest_testdb1(dbname):
         gid_list = np.array(ibs.get_valid_gids())
         # Set image unixtimes
         unixtimes_even = (gid_list[0::2] + 100).tolist()
-        unixtimes_odd  = (gid_list[1::2] + 9001).tolist()
+        unixtimes_odd = (gid_list[1::2] + 9001).tolist()
         unixtime_list = unixtimes_even + unixtimes_odd
         ibs.set_image_unixtime(gid_list, unixtime_list)
         # Unname first aid in every name
         aid_list = ibs.get_valid_aids()
         nid_list = ibs.get_annot_name_rowids(aid_list)
-        nid_list = [ (nid if nid > 0 else None) for nid in nid_list]
+        nid_list = [(nid if nid > 0 else None) for nid in nid_list]
         unique_flag = ut.flag_unique_items(nid_list)
         unique_nids = ut.compress(nid_list, unique_flag)
-        none_nids = [ nid is not None for nid in nid_list]
+        none_nids = [nid is not None for nid in nid_list]
         flagged_nids = [nid for nid in unique_nids if nid_list.count(nid) > 1]
         plural_flag = [nid in flagged_nids for nid in nid_list]
         flag_list = list(map(all, zip(plural_flag, unique_flag, none_nids)))
@@ -649,10 +671,15 @@ def ingest_testdb1(dbname):
             species_text_list[ix] = const.TEST_SPECIES.BEAR_POLAR
 
         ibs.set_annot_species(aid_list, species_text_list)
+        ibs.set_annot_yaw_texts(aid_list[0:6], ['left'] * 6)
+        ibs.set_annot_yaw_texts(aid_list[8:10], ['left'] * 2)
+        ibs.set_annot_yaw_texts(aid_list[10:12], ['right'] * 2)
         ibs.set_annot_notes(aid_list[8:10], ['this is actually a plains zebra'] * 2)
         ibs.set_annot_notes(aid_list[0:1], ['aid 1 and 2 are correct matches'])
         ibs.set_annot_notes(aid_list[6:7], ['very simple image to debug feature detector'])
         ibs.set_annot_notes(aid_list[7:8], ['standard test image'])
+        ibs.set_annot_reviewed(aid_list[::2], [True] * len(aid_list[::2]))
+        ibs.set_annot_multiple(aid_list[::2], [False] * len(aid_list[::2]))
 
         # Set some randomish gps flags that are within nnp
         unixtime_list = ibs.get_image_unixtime(gid_list)
@@ -678,7 +705,7 @@ def ingest_testdb1(dbname):
             ibs.filter_annots_general(min_pername=2, verbose=True))[0]
         aid1_list = ut.take_column(aidgroups, 0)
         aid2_list = ut.take_column(aidgroups, 1)
-        annotmatch_rowids = ibs.add_annotmatch(aid1_list, aid2_list)
+        annotmatch_rowids = ibs.add_annotmatch_undirected(aid1_list, aid2_list)
 
         ibs.set_annotmatch_truth(annotmatch_rowids, [True] * len(annotmatch_rowids))
         ibs.set_annotmatch_truth(annotmatch_rowids, [True] * len(annotmatch_rowids))
@@ -825,7 +852,7 @@ def ingest_standard_database(dbname, force_delete=False):
     from ibeis.control import IBEISControl
     print('[ingest] Ingest Standard Database: dbname=%r' % (dbname,))
     ingestable = get_standard_ingestable(dbname)
-    dbdir = ibeis.sysres.db_to_dbdir(ingestable.dbname, allow_newdir=True, use_sync=False)
+    dbdir = ibeis.sysres.db_to_dbdir(ingestable.dbname, allow_newdir=True)
     ut.ensuredir(dbdir, verbose=True)
     if force_delete:
         ibsfuncs.delete_ibeis_database(dbdir)

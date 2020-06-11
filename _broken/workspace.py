@@ -18,7 +18,7 @@ def chip_tester():
     import plottool as pt
     pt.ensure_pylab_qt4()
 
-    from ibeis.core_annots import *  # NOQA
+    # from ibeis.core_annots import *  # NOQA
     import ibeis
     defaultdb = 'GZ_ALL'
     ibs = ibeis.opendb(defaultdb=defaultdb)
@@ -153,8 +153,8 @@ def find_most_disitnctive_keypoints():
         python -m ibeis.workflow --exec-find_most_disitnctive_keypoints --show
 
     Example:
-        >>> # ENABLE_DOCTEST
-        >>> from ibeis.workflow import *  # NOQA
+        >>> # DISABLE_DOCTEST
+        >>> from ibeis.other.workspace import *  # NOQA
         >>> find_most_disitnctive_keypoints()
     """
     import ibeis

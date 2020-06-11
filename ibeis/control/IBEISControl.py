@@ -56,6 +56,8 @@ from ibeis.control import accessor_decors, controller_inject
 AUTOLOAD_PLUGIN_MODNAMES = [
     'ibeis.annotmatch_funcs',
     'ibeis.tag_funcs',
+    'ibeis.annots',
+    'ibeis.images',
     'ibeis.other.ibsfuncs',
     'ibeis.other.detectfuncs',
     'ibeis.init.filter_annots',
@@ -83,6 +85,9 @@ AUTOLOAD_PLUGIN_MODNAMES = [
     'ibeis.web.apis_engine',
     'ibeis.web.apis_query',
     'ibeis.web.apis',
+    'ibeis.core_annots',
+    'ibeis.new_annots',
+    'ibeis.core_images',
     (('--no-cnn', '--nocnn'), 'ibeis_cnn'),
     (('--no-cnn', '--nocnn'), 'ibeis_cnn._plugin'),
     #(('--no-fluke', '--nofluke'), 'ibeis_flukematch.plugin'),
@@ -103,13 +108,17 @@ for modname in ut.ProgIter(AUTOLOAD_PLUGIN_MODNAMES, 'loading plugins',
         flag, modname = modname
         if ut.get_argflag(flag):
             continue
-    ut.import_modname(modname)
+    try:
+        ut.import_modname(modname)
+    except ImportError as ex:
+        ut.printex(ex, iswarning=True)
+
 
 # NOTE: new plugin code needs to be hacked in here currently
 # this is not a long term solution.  THE Long term solution is to get these
 # working (which are partially integrated)
-#     python -m ibeis --tf dev_autogen_explicit_imports
-#     python -m ibeis --tf dev_autogen_explicit_injects
+#     python -m ibeis dev_autogen_explicit_imports
+#     python -m ibeis dev_autogen_explicit_injects
 
 # Ensure that all injectable modules are imported before constructing the
 # class instance
@@ -120,7 +129,7 @@ try:
         raise ImportError
     else:
         """
-        python -m ibeis --tf dev_autogen_explicit_injects
+        python -m ibeis dev_autogen_explicit_injects
         """
         from ibeis.control import _autogen_explicit_controller
         BASE_CLASS = _autogen_explicit_controller.ExplicitInjectIBEISController
@@ -257,12 +266,16 @@ class IBEISController(BASE_CLASS):
         ibs.dbname = None
         # an dict to hack in temporary state
         ibs.const = const
+        ibs.readonly = None
         ibs.depc_annot = None
         ibs.depc_image = None
         #ibs.allow_override = 'override+warn'
         ibs.allow_override = True
         if force_serial is None:
-            force_serial = not ut.in_main_process()
+            if ut.get_argflag(('--utool-force-serial', '--force-serial', '--serial')):
+                force_serial = True
+            else:
+                force_serial = not ut.in_main_process()
         ibs.force_serial = force_serial
         # observer_weakref_list keeps track of the guibacks connected to this
         # controller
@@ -276,7 +289,7 @@ class IBEISController(BASE_CLASS):
         ibs._send_wildbook_request(wbaddr)
         ibs._init_sql(request_dbversion=request_dbversion)
         ibs._init_config()
-        if not ut.get_argflag('--noclean'):
+        if not ut.get_argflag('--noclean') and not ibs.readonly:
             # ibs._init_burned_in_species()
             ibs._clean_species()
         ibs.job_manager = None
@@ -332,13 +345,12 @@ class IBEISController(BASE_CLASS):
         """
         ibs.show_depc_graph(ibs.depc_annot, *args, **kwargs)
 
-    def show_depc_table_input(ibs, depc, tablename, reduced=False):
-        depc[tablename].show_input_graph()
-
-    def show_depc_annot_table_input(ibs, *args, **kwargs):
+    def show_depc_annot_table_input(ibs, tablename, *args, **kwargs):
         """
         CommandLine:
             python -m ibeis.control.IBEISControl --test-show_depc_annot_table_input --show --tablename=vsone
+            python -m ibeis.control.IBEISControl --test-show_depc_annot_table_input --show --tablename=neighbor_index
+            python -m ibeis.control.IBEISControl --test-show_depc_annot_table_input --show --tablename=feat_neighbs --testmode
 
         Example:
             >>> # SCRIPT
@@ -349,7 +361,7 @@ class IBEISController(BASE_CLASS):
             >>> ibs.show_depc_annot_table_input(tablename)
             >>> ut.show_if_requested()
         """
-        ibs.show_depc_table_input(ibs.depc_annot, *args, **kwargs)
+        ibs.depc_annot[tablename].show_input_graph()
 
     def get_cachestats_str(ibs):
         """
@@ -479,8 +491,15 @@ class IBEISController(BASE_CLASS):
     def _init_sql(ibs, request_dbversion=None):
         """ Load or create sql database """
         from ibeis.other import duct_tape  # NOQA
-        ibs._init_sqldbcore(request_dbversion=request_dbversion)
+        # LOAD THE DEPENDENCY CACHE BEFORE THE MAIN DATABASE SO THAT ANY UPDATE
+        # CALLS TO THE CORE DATABASE WILL HAVE ACCESS TO THE CACHE DATABASES IF
+        # THEY ARE NEEDED.  THIS IS A DECISION MADE ON 8/16/16 BY JP AND JC TO
+        # ALLOW FOR COLUMN DATA IN THE CORE DATABASE TO BE MIGRATED TO THE CACHE
+        # DATABASE DURING A POST UPDATE FUNCTION ROUTINE, WHICH HAS TO BE LOADED
+        # FIRST AND DEFINED IN ORDER TO MAKE THE SUBSEQUENT WRITE CALLS TO THE
+        # RELEVANT CACHE DATABASE
         ibs._init_depcache()
+        ibs._init_sqldbcore(request_dbversion=request_dbversion)
         # ibs.db.dump_schema()
         # ibs.db.dump()
         ibs._init_rowid_constants()
@@ -512,7 +531,14 @@ class IBEISController(BASE_CLASS):
         from ibeis.control import _sql_helpers
         from ibeis.control import DB_SCHEMA
         # Before load, ensure database has been backed up for the day
-        if not ut.get_argflag('--nobackup'):
+        backup_idx = ut.get_argval('--loadbackup', type_=int, default=None)
+        sqldb_fpath = None
+        if backup_idx is not None:
+            backups = _sql_helpers.get_backup_fpaths(ibs)
+            print('backups = %r' % (backups,))
+            sqldb_fpath = backups[backup_idx]
+            print('CHOSE BACKUP sqldb_fpath = %r' % (sqldb_fpath,))
+        if backup_idx is None and not ut.get_argflag('--nobackup'):
             try:
                 _sql_helpers.ensure_daily_database_backup(ibs.get_ibsdir(),
                                                           ibs.sqldb_fname,
@@ -525,26 +551,36 @@ class IBEISController(BASE_CLASS):
         # IBEIS SQL State Database
         #ibs.db_version_expected = '1.1.1'
         if request_dbversion is None:
-            ibs.db_version_expected = '1.5.2'
+            ibs.db_version_expected = '1.5.4'
         else:
             ibs.db_version_expected = request_dbversion
         # TODO: add this functionality to SQLController
-        new_version, new_fname = dtool.sql_control.dev_test_new_schema_version(
-            ibs.get_dbname(), ibs.get_ibsdir(),
-            ibs.sqldb_fname, ibs.db_version_expected, version_next='1.5.2')
-        ibs.db_version_expected = new_version
-        ibs.sqldb_fname = new_fname
+        if backup_idx is None:
+            new_version, new_fname = dtool.sql_control.dev_test_new_schema_version(
+                ibs.get_dbname(), ibs.get_ibsdir(),
+                ibs.sqldb_fname, ibs.db_version_expected, version_next='1.5.4')
+            ibs.db_version_expected = new_version
+            ibs.sqldb_fname = new_fname
+        if sqldb_fpath is None:
+            assert backup_idx is None
+            sqldb_fpath = join(ibs.get_ibsdir(), ibs.sqldb_fname)
+            readonly = None
+        else:
+            readonly = True
         ibs.db = dtool.SQLDatabaseController(
-            ibs.get_ibsdir(), ibs.sqldb_fname, text_factory=const.__STR__,
-            inmemory=False, )
-        # Ensure correct schema versions
-        _sql_helpers.ensure_correct_version(
-            ibs,
-            ibs.db,
-            ibs.db_version_expected,
-            DB_SCHEMA,
-            verbose=ut.VERBOSE,
-        )
+            fpath=sqldb_fpath, text_factory=const.__STR__,
+            inmemory=False, readonly=readonly)
+        ibs.readonly = ibs.db.readonly
+
+        if backup_idx is None:
+            # Ensure correct schema versions
+            _sql_helpers.ensure_correct_version(
+                ibs,
+                ibs.db,
+                ibs.db_version_expected,
+                DB_SCHEMA,
+                verbose=ut.VERBOSE,
+            )
         #import sys
         #sys.exit(1)
 
@@ -702,7 +738,7 @@ class IBEISController(BASE_CLASS):
     # --- DIRS ----
     #--------------
 
-    @register_api('/api/core/dbname/', methods=['GET'])
+    @register_api('/api/core/db/name/', methods=['GET'])
     def get_dbname(ibs):
         """
         Returns:
@@ -710,7 +746,7 @@ class IBEISController(BASE_CLASS):
 
         RESTful:
             Method: GET
-            URL:    /api/core/dbname/
+            URL:    /api/core/db/name/
         """
         return ibs.dbname
 
@@ -718,10 +754,7 @@ class IBEISController(BASE_CLASS):
         return ut.get_logging_dir(appname='ibeis')
 
     def get_dbdir(ibs):
-        """
-        Returns:
-            list_ (list): database dir with ibs internal directory """
-        #return join(ibs.workdir, ibs.dbname)
+        """ database dir with ibs internal directory """
         return ibs.dbdir
 
     def get_db_core_path(ibs):
@@ -743,9 +776,7 @@ class IBEISController(BASE_CLASS):
         return ibs.trashdir
 
     def get_ibsdir(ibs):
-        """
-        Returns:
-            list_ (list): ibs internal directory """
+        """ ibs internal directory """
         return ibs._ibsdb
 
     def get_chipdir(ibs):
@@ -755,39 +786,27 @@ class IBEISController(BASE_CLASS):
         return join(ibs.get_cachedir(), 'prob_chips')
 
     def get_fig_dir(ibs):
-        """
-        Returns:
-            list_ (list): ibs internal directory """
+        """ ibs internal directory """
         return join(ibs._ibsdb, 'figures')
 
     def get_imgdir(ibs):
-        """
-        Returns:
-            list_ (list): ibs internal directory """
+        """ ibs internal directory """
         return ibs.imgdir
 
     def get_uploadsdir(ibs):
-        """
-        Returns:
-            list_ (list): ibs internal directory """
+        """ ibs internal directory """
         return ibs.uploadsdir
 
     def get_thumbdir(ibs):
-        """
-        Returns:
-            list_ (list): database directory where thumbnails are cached """
+        """ database directory where thumbnails are cached """
         return ibs.thumb_dpath
 
     def get_workdir(ibs):
-        """
-        Returns:
-            list_ (list): directory where databases are saved to """
+        """ directory where databases are saved to """
         return ibs.workdir
 
     def get_cachedir(ibs):
-        """
-        Returns:
-            list_ (list): database directory of all cached files """
+        """ database directory of all cached files """
         return ibs.cachedir
 
     def get_match_thumbdir(ibs):
@@ -951,7 +970,7 @@ class IBEISController(BASE_CLASS):
         return text
 
     @accessor_decors.default_decorator
-    @register_api('/api/core/dbinfo/', methods=['GET'])
+    @register_api('/api/core/db/info/', methods=['GET'])
     def get_dbinfo(ibs):
         from ibeis.other import dbinfo
         locals_ = dbinfo.get_dbinfo(ibs)
@@ -961,6 +980,11 @@ class IBEISController(BASE_CLASS):
     #--------------
     # --- MISC ----
     #--------------
+
+    def copy_database(ibs, dest_dbdir):
+        # TODO: rectify with rsync, script, and merge script.
+        from ibeis.init import sysres
+        sysres.copy_ibeisdb(ibs.get_dbdir(), dest_dbdir)
 
     @accessor_decors.default_decorator
     def get_database_icon(ibs, max_dsize=(None, 192), aid=None):

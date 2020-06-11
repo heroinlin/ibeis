@@ -10,20 +10,23 @@ from ibeis.viz import viz_helpers as vh
 def _get_annot_pair_info(ibs, aid1, aid2, qreq_, draw_fmatches, **kwargs):
     kpts1 = kwargs.get('kpts1', None)
     kpts2 = kwargs.get('kpts2', None)
+    as_fpath = kwargs.get('as_fpath', False)
     kpts2_list = None if kpts2 is None else [kpts2]
     rchip1, kpts1 = get_query_annot_pair_info(ibs, aid1, qreq_, draw_fmatches,
-                                              kpts1=kpts1)
+                                              kpts1=kpts1, as_fpath=as_fpath)
     annot2_data_list = get_data_annot_pair_info(ibs, [aid2], qreq_,
                                                 draw_fmatches,
+                                                as_fpath=as_fpath,
                                                 kpts2_list=kpts2_list)
     rchip2, kpts2 = ut.get_list_column(annot2_data_list , 0)
     return rchip1, rchip2, kpts1, kpts2
 
 
-def get_query_annot_pair_info(ibs, qaid, qreq_, draw_fmatches, kpts1=None):
+def get_query_annot_pair_info(ibs, qaid, qreq_, draw_fmatches, kpts1=None,
+                              as_fpath=False):
     #print('!!! qqreq_ = %r' % (qreq_,))
     query_config2_ = (None if qreq_ is None
-                      else qreq_.get_external_query_config2())
+                      else qreq_.extern_query_config2)
     tblhack = getattr(qreq_, 'tablename', None)
     #print('!!! query_config2_ = %r' % (query_config2_,))
     if (not tblhack or tblhack == 'BC_DTW') and getattr(qreq_, '_isnewreq', None):
@@ -34,7 +37,8 @@ def get_query_annot_pair_info(ibs, qaid, qreq_, draw_fmatches, kpts1=None):
             rchip1 = ibs.depc_annot.get_property('chips', qaid, 'img', config=query_config2_)
             draw_fmatches = False
     else:
-        rchip1 = vh.get_chips(ibs, [qaid], config2_=query_config2_)[0]
+        rchip1 = vh.get_chips(ibs, [qaid], config2_=query_config2_,
+                              as_fpath=as_fpath)[0]
     if draw_fmatches:
         if kpts1 is None:
             kpts1 = vh.get_kpts(ibs, [qaid], config2_=query_config2_)[0]
@@ -44,9 +48,9 @@ def get_query_annot_pair_info(ibs, qaid, qreq_, draw_fmatches, kpts1=None):
 
 
 def get_data_annot_pair_info(ibs, aid_list, qreq_, draw_fmatches,
-                             scale_down=False, kpts2_list=None):
+                             scale_down=False, kpts2_list=None, as_fpath=False):
     data_config2_ = (None if qreq_ is None else
-                     qreq_.get_external_data_config2())
+                     qreq_.extern_data_config2)
     #print('!!! data_config2_ = %r' % (data_config2_,))
     #print('!!! dqreq_ = %r' % (qreq_,))
     tblhack = getattr(qreq_, 'tablename', None)
@@ -60,7 +64,8 @@ def get_data_annot_pair_info(ibs, aid_list, qreq_, draw_fmatches,
             draw_fmatches = False
         #vh.get_chips(ibs, aid_list, config2_=data_config2_)
     else:
-        rchip2_list = vh.get_chips(ibs, aid_list, config2_=data_config2_)
+        rchip2_list = vh.get_chips(ibs, aid_list, config2_=data_config2_,
+                                   as_fpath=as_fpath)
     if draw_fmatches:
         if kpts2_list is None:
             kpts2_list = vh.get_kpts(ibs, aid_list, config2_=data_config2_)
@@ -303,7 +308,7 @@ def annotate_matches3(ibs, aid_list, bbox_list, offset_list, name_fm_list,
 
         #if not show_query and xywh1 is None:
         #    data_config2 = None if qreq_ is None else
-        #    qreq_.get_external_data_config2()
+        #    qreq_.extern_data_config2
         #    kpts2 = ibs.get_annot_kpts([aid2], config2_=data_config2)[0]
         #    #pt.draw_kpts2(kpts2.take(fm.T[1], axis=0))
         #    # Draw any selected matches
@@ -413,7 +418,7 @@ def annotate_matches2(ibs, aid1, aid2, fm, fs,
 
             if not show_query and xywh1 is None:
                 data_config2 = (None if qreq_ is None else
-                                qreq_.get_external_data_config2())
+                                qreq_.extern_data_config2)
                 # FIXME, pass data in
                 kpts2 = ibs.get_annot_kpts([aid2], config2_=data_config2)[0]
                 #pt.draw_kpts2(kpts2.take(fm.T[1], axis=0))
@@ -602,7 +607,6 @@ def show_multichip_match(rchip1, rchip2_list, kpts1, kpts2_list, fm_list,
     #vert = True if len(rchip2_list) > 1 else False
     vert = True if len(rchip2_list) > 1 else None
     #num = 0
-    #vert = False
 
     if False and kwargs.get('fastmode', False):
         # This doesn't actually help the speed very much

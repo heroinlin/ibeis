@@ -3,7 +3,10 @@
 from __future__ import absolute_import, division, print_function
 import six
 from utool import util_setup
-from setuptools import setup
+import setuptools
+
+
+setman = util_setup.SetupManager()
 
 
 CHMOD_PATTERNS = [
@@ -34,7 +37,8 @@ CLUTTER_PATTERNS = [
     'failed_shelltests.txt',
     'test_pyflann_index.flann',
     'test_pyflann_ptsdata.npz',
-    '_test_times.txt',
+    '_timeings.txt',
+    'timeings.txt',
     'test_times.txt',
     'raw_profile.txt',
     'Tgen.sh',
@@ -121,8 +125,8 @@ INSTALL_OPTIONAL = [
     #sudo apt-get  install libgraphviz4 libgraphviz-dev -y
     #sudo apt-get install libgraphviz-dev
     #pip install pygraphviz
-    #sudo pip3 install pygraphviz \
-    #    --install-option="--include-path=/usr/include/graphviz" \
+    #sudo pip3 install pygraphviz
+    #    --install-option="--include-path=/usr/include/graphviz"
     #    --install-option="--library-path=/usr/lib/graphviz/"
     #python -c "import pygraphviz; print(pygraphviz.__file__)"
     #python3 -c "import pygraphviz; print(pygraphviz.__file__)"
@@ -149,6 +153,19 @@ if six.PY2:
 INSTALL_REQUIRES += INSTALL_OPTIONAL
 
 
+@setman.register_command
+def autogen_explicit_imports():
+    """
+    Excpliticly generated injectable code in order to aid auto complete
+    programs like jedi as well as allow for a more transparent stack trace.
+
+    python -m ibeis dev_autogen_explicit_injects
+    """
+    import ibeis  # NOQA
+    from ibeis.control import controller_inject
+    controller_inject.dev_autogen_explicit_injects()
+
+
 if __name__ == '__main__':
     print('[setup] Entering IBEIS setup')
     kwargs = util_setup.setuptools_setup(
@@ -161,7 +178,6 @@ if __name__ == '__main__':
         license=util_setup.read_license('LICENSE'),
         long_description=util_setup.parse_readme('README.md'),
         ext_modules=util_setup.find_ext_modules(),
-        cmdclass=util_setup.get_cmdclass(),
         project_dirs=PROJECT_DIRS,
         chmod_patterns=CHMOD_PATTERNS,
         clutter_patterns=CLUTTER_PATTERNS,
@@ -172,4 +188,7 @@ if __name__ == '__main__':
         ],
         #cython_files=CYTHON_FILES,
     )
-    setup(**kwargs)
+
+    kwargs['cmdclass'] = setman.get_cmdclass()
+
+    setuptools.setup(**kwargs)

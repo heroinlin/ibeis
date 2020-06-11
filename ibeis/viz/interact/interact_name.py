@@ -3,6 +3,8 @@
 Matplotlib interface for name interactions. Allows for relatively fine grained
 control of splitting and merging.
 
+DEPRICATE
+
 CommandLine:
     python -m ibeis.viz.interact.interact_name --test-ishow_name --show
     python -m ibeis.viz.interact.interact_name --test-testsdata_match_verification --show --db PZ_MTEST --aid1 1 --aid2 30
@@ -23,7 +25,7 @@ from ibeis.viz import viz_helpers as vh
 from ibeis.other import ibsfuncs
 from ibeis.viz import viz_chip
 from plottool.abstract_interaction import AbstractInteraction
-(print, print_, printDBG, rrr, profile) = ut.inject(__name__, '[interact_name]', DEBUG=False)
+(print, rrr, profile) = ut.inject2(__name__, '[interact_name]', DEBUG=False)
 
 
 #==========================
@@ -34,11 +36,14 @@ MAX_COLS = 3
 
 
 def build_name_context_options(ibs, nids):
+    print('build_name_context_options nids = %r' % (nids,))
     callback_list = []
-    from ibeis.viz import viz_graph
-    callback_list.append(
-        ('Interact name graph', functools.partial(viz_graph.make_name_graph_interaction, ibs, nids=nids)),
-    )
+    #from ibeis.viz import viz_graph
+    from ibeis.viz import viz_graph2
+    callback_list.extend([
+        #('Interact name graph', functools.partial(viz_graph.make_name_graph_interaction, ibs, nids=nids)),
+        ('New Split Interact (Name)', functools.partial(viz_graph2.make_qt_graph_interface, ibs, nids=nids)),
+    ])
     return callback_list
 
 
@@ -76,11 +81,9 @@ def ishow_name(ibs, nid, sel_aids=[], select_aid_callback=None, fnum=5, dodraw=T
     fig = ih.begin_interaction('name', fnum)
 
     def _on_name_click(event):
-        print_('[inter] clicked name')
         ax = event.inaxes
         if ih.clicked_inside_axis(event):
             viztype = vh.get_ibsdat(ax, 'viztype')
-            print_(' viztype=%r' % viztype)
             if viztype == 'chip':
                 aid = vh.get_ibsdat(ax, 'aid')
                 print('... aid=%r' % aid)
@@ -550,7 +553,7 @@ class MatchVerificationInteraction(AbstractInteraction):
             self.append_button('review', callback=self.review, rect=next_rect2())
         self.append_button('reset', callback=self.reset_all_names, rect=next_rect2())
         self.dbname = ibs.get_dbname()
-        self.vsstr = ibsfuncs.vsstr(self.aid1, self.aid2)
+        self.vsstr = 'qaid%d-vs-aid%d' % (self.aid1, self.aid2)
         figtitle_fmt = '''
         Match Review Interface - {dbname}
         {match_text}:
@@ -603,7 +606,7 @@ class MatchVerificationInteraction(AbstractInteraction):
 
     def close_(self, event=None):
         # closing this gui with the button means you have reviewed the annotation.
-        self.ibs.set_annot_pair_as_reviewed(self.aid1, self.aid2)
+        #self.ibs.set_annot_pair_as_reviewed(self.aid1, self.aid2)
         self.close()
 
     def unname_all(self, event=None):
@@ -651,11 +654,9 @@ class MatchVerificationInteraction(AbstractInteraction):
                 self.close()
 
     def figure_clicked(self, event=None):
-        #print_('[inter] clicked name')
         ax = event.inaxes
         if ih.clicked_inside_axis(event):
             viztype = vh.get_ibsdat(ax, 'viztype')
-            print_(' viztype=%r' % viztype)
             if viztype == 'chip':
                 aid = vh.get_ibsdat(ax, 'aid')
                 #print('... aid=%r' % aid)

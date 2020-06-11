@@ -244,7 +244,6 @@ def post_1_2_0(db, ibs=None):
 
         Example:
             >>> # DISABLE_DOCTEST
-            >>> from ibeis.algo.preproc.preproc_annot import *  # NOQA
             >>> import ibeis
             >>> #import sys
             #>>> sys.argv.append('--force-fresh')
@@ -381,7 +380,6 @@ def post_1_2_1(db, ibs=None):
     if ibs is not None:
         print('applying post_1_2_1')
         import utool as ut
-        from ibeis.algo.preproc import preproc_annot
         if ibs is not None:
             ibs._init_rowid_constants()
             #db = ibs.db
@@ -458,12 +456,14 @@ def post_1_2_1(db, ibs=None):
 
         def update_annot_semantic_uuids_v121(aid_list, _visual_infotup=None):
             semantic_infotup = get_annot_semantic_uuid_info_v121(aid_list, _visual_infotup)
-            annot_semantic_uuid_list = preproc_annot.make_annot_semantic_uuid(semantic_infotup)
+            assert len(semantic_infotup) == 6, 'len=%r' % (len(semantic_infotup),)
+            annot_semantic_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*semantic_infotup)]
             ibs.db.set(ANNOTATION_TABLE, (ANNOT_SEMANTIC_UUID,), annot_semantic_uuid_list, aid_list)
 
         def update_annot_visual_uuids_v121(aid_list):
             visual_infotup = get_annot_visual_uuid_info_v121(aid_list)
-            annot_visual_uuid_list = preproc_annot.make_annot_visual_uuid(visual_infotup)
+            assert len(visual_infotup) == 3, 'len=%r' % (len(visual_infotup),)
+            annot_visual_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*visual_infotup)]
             ibs.db.set(ANNOTATION_TABLE, (ANNOT_VISUAL_UUID,), annot_visual_uuid_list, aid_list)
             # If visual uuids are changes semantic ones are also changed
             update_annot_semantic_uuids_v121(aid_list, visual_infotup)
@@ -490,7 +490,6 @@ def pre_1_3_1(db, ibs=None):
         ibs._init_config()
         aid_list = ibs.get_valid_aids()
         def pre_1_3_1_update_visual_uuids(ibs, aid_list):
-            from ibeis.algo.preproc import preproc_annot
             def pre_1_3_1_get_annot_visual_uuid_info(ibs, aid_list):
                 image_uuid_list = ibs.get_annot_image_uuids(aid_list)
                 verts_list      = ibs.get_annot_verts(aid_list)
@@ -511,13 +510,15 @@ def pre_1_3_1(db, ibs=None):
                                     name_list, species_list)
                 return semantic_infotup
             visual_infotup = pre_1_3_1_get_annot_visual_uuid_info(ibs, aid_list)
-            annot_visual_uuid_list = preproc_annot.make_annot_visual_uuid(visual_infotup)
+            assert len(visual_infotup) == 3, 'len=%r' % (len(visual_infotup),)
+            annot_visual_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*visual_infotup)]
             ibs.db.set(const.ANNOTATION_TABLE, (ANNOT_VISUAL_UUID,), annot_visual_uuid_list, aid_list)
             # If visual uuids are changes semantic ones are also changed
             # update semeantic pre 1_3_1
             _visual_infotup = visual_infotup
             semantic_infotup = pre_1_3_1_get_annot_semantic_uuid_info(ibs, aid_list, _visual_infotup)
-            annot_semantic_uuid_list = preproc_annot.make_annot_semantic_uuid(semantic_infotup)
+            assert len(semantic_infotup) == 6, 'len=%r' % (len(semantic_infotup),)
+            annot_semantic_uuid_list = [ut.augment_uuid(*tup) for tup in zip(*semantic_infotup)]
             ibs.db.set(const.ANNOTATION_TABLE, (ANNOT_SEMANTIC_UUID,), annot_semantic_uuid_list, aid_list)
             pass
         pre_1_3_1_update_visual_uuids(ibs, aid_list)
@@ -532,10 +533,6 @@ def pre_1_3_1(db, ibs=None):
                 dupaids_list.append(aids[1:])
             toremove_aids = ut.flatten(dupaids_list)
             print('About to delete toremove_aids=%r' % (toremove_aids,))
-            #if ut.are_you_sure():
-            #ibs.delete_annots(toremove_aids)
-            #from ibeis.algo.preproc import preproc_annot
-            #preproc_annot.on_delete(ibs, toremove_aids)
             ibs.db.delete_rowids(const.ANNOTATION_TABLE, toremove_aids)
 
             aid_list = ibs.get_valid_aids()
@@ -1204,13 +1201,13 @@ def pre_1_4_8(db, ibs=None):
             const.ANNOTMATCH_TABLE, ('annotmatch_note',), annotmatch_rowids,
             id_colname='rowid')
         new_notes_list = annotmatch_note_list
-        new_notes_list = tag_funcs.set_tags_in_textformat(
+        new_notes_list = tag_funcs.set_textformat_tag_flags(
             'photobomb', new_notes_list, annotmatch_is_photobomb_list)
-        new_notes_list = tag_funcs.set_tags_in_textformat(
+        new_notes_list = tag_funcs.set_textformat_tag_flags(
             'nondistinct', new_notes_list, annotmatch_is_nondistinct)
-        new_notes_list = tag_funcs.set_tags_in_textformat(
+        new_notes_list = tag_funcs.set_textformat_tag_flags(
             'hard', new_notes_list, annotmatch_is_hard)
-        new_notes_list = tag_funcs.set_tags_in_textformat(
+        new_notes_list = tag_funcs.set_textformat_tag_flags(
             'scenerymatch', new_notes_list, annotmatch_is_scenerymatch)
 
         ibs.db.set(const.ANNOTMATCH_TABLE, ('annotmatch_note',),
@@ -1380,6 +1377,20 @@ def post_1_5_2(db, ibs=None, verbose=False):
         parse_and_update_image_exif_orientations(ibs, verbose=verbose)
 
 
+def update_1_5_3(db, ibs=None):
+    # Add reviewed flag to annotations
+    db.modify_table(const.ANNOTATION_TABLE, (
+        (13, 'annot_toggle_reviewed',        'INTEGER DEFAULT 0', None),
+    ))
+
+
+def update_1_5_4(db, ibs=None):
+    # Add reviewed flag to annotations
+    db.modify_table(const.ANNOTATION_TABLE, (
+        (14, 'annot_toggle_multiple',        'INTEGER DEFAULT NULL', None),
+    ))
+
+
 # ========================
 # Valid Versions & Mapping
 # ========================
@@ -1421,6 +1432,8 @@ VALID_VERSIONS = ut.odict([
     ('1.5.0',    (None,                 update_1_5_0,       None                )),
     ('1.5.1',    (None,                 update_1_5_1,       None                )),
     ('1.5.2',    (None,                 update_1_5_2,       post_1_5_2          )),
+    ('1.5.3',    (None,                 update_1_5_3,       None                )),
+    ('1.5.4',    (None,                 update_1_5_4,       None                )),
 ])
 """
 SeeAlso:

@@ -153,6 +153,7 @@ def make_table_declarations(ibs):
             'datetime',
             'max_hourdiff',
             'max_speed',
+            'has_split',
             'namenotes',
         ],
 
@@ -215,13 +216,14 @@ def make_table_declarations(ibs):
             'datetime': 1,
             'max_hourdiff': 0,
             'max_speed': 0,
+            'has_split': 0,
         },
     }
 
     # the columns which are editable
     TABLE_EDITSET = {
         IMAGE_TABLE      : set(['reviewed', 'imgnotes']),
-        ANNOTATION_TABLE : set(['name', 'species', 'annotnotes', 'exemplar', 'yaw', 'yaw_text', 'quality_text', 'age_min', 'age_max', 'sex_text']),
+        ANNOTATION_TABLE : set(['name', 'species', 'annotnotes', 'exemplar', 'yaw', 'yaw_text', 'quality_text', 'age_min', 'age_max', 'sex_text', 'tag_text']),
         NAME_TABLE       : set(['name', 'namenotes']),
         QRES_TABLE       : set(['name']),
         IMAGESET_TABLE  : set(['imagesettext', 'imageset_shipped_flag', 'imageset_processed_flag']),
@@ -303,6 +305,7 @@ def make_table_declarations(ibs):
         ('num_annotmatch_reviewed',         (str,      '#Matches Reviewed')),
         ('percent_names_with_exemplar_str', (str,      '%Names with Exemplar')),
         ('max_speed',                       (float,    'Max Speed km/h')),
+        ('has_split',                       (float,    'Needs Split')),
         ('max_hourdiff',                    (float,    'Max Hour Diff')),
         ('tag_text',                        (str,      'Tags')),
     ])
@@ -311,35 +314,6 @@ def make_table_declarations(ibs):
     return declare_tup
 
 #----
-# Define the special metadata for annotation
-
-
-#def expand_special_colnames(annot_metadata):
-#    global COL_DEF
-#    for name, nice, valid in annot_metadata:
-#        #TABLE_COLNAMES[ANNOTATION_TABLE]
-#        if isinstance(valid, list):
-#            type_ = str
-#        else:
-#            type_ = valid
-#        COL_DEF[name] = (type_, nice)
-#expand_special_colnames(const.ROSEMARY_ANNOT_METADATA)
-
-#-----
-
-
-#def get_redirects(ibs):
-#    """
-#        Allows one to specify a column in a particular table to redirect the view
-#        to a different view (like a link in HTML to a different page)
-#    """
-#    redirects = {}
-#    # Annotation redirects
-#    # redirects[ANNOTATION_TABLE] = {
-#    #     'annot_gname' : (IMAGE_TABLE, ibs.get_annot_gids),
-#    # }
-#    # Return the redirects dictionary
-#    return redirects
 
 
 def make_ibeis_headers_dict(ibs):
@@ -409,7 +383,7 @@ def make_ibeis_headers_dict(ibs):
         'img_gname'    : ibs.get_image_gnames,
         'nAids'        : ibs.get_image_num_annotations,
         'unixtime'     : ibs.get_image_unixtime,
-        'datetime'     : ibs.get_image_datetime,
+        'datetime'     : ibs.get_image_datetime_str,
         'gdconf'       : ibs.get_image_detect_confidence,
         'imgnotes'     : ibs.get_image_notes,
         'image_uuid'   : ibs.get_image_uuids,
@@ -460,7 +434,7 @@ def make_ibeis_headers_dict(ibs):
         'exemplar'            : ibs.get_annot_exemplar_flags,
         'annot_visual_uuid'   : ibs.get_annot_visual_uuids,
         'annot_semantic_uuid' : ibs.get_annot_semantic_uuids,
-        'datetime'            : ibs.get_annot_image_datetime,
+        'datetime'            : ibs.get_annot_image_datetime_str,
     }
     infer_unspecified_getters(ANNOTATION_TABLE, 'annot')
     setters[ANNOTATION_TABLE] = {
@@ -474,6 +448,7 @@ def make_ibeis_headers_dict(ibs):
         'annotnotes' : ibs.set_annot_notes,
         'exemplar'   : ibs.set_annot_exemplar_flags,
         'quality_text'    : ibs.set_annot_quality_texts,
+        'tag_text': ibs.set_annot_tag_text,
     }
     # +--------------------------
     # Name Iders/Setters/Getters
@@ -483,6 +458,7 @@ def make_ibeis_headers_dict(ibs):
         'name'       : ibs.get_name_texts,
         'nAids'      : ibs.get_name_num_annotations,
         'namenotes'  : ibs.get_name_notes,
+        #'has_split'  : ibs.get_name_has_split,
     }
     setters[NAME_TABLE] = {
         'name'       : ibs.set_name_texts,

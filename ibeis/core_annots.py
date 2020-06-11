@@ -59,9 +59,9 @@ from ibeis.algo.hots import neighbor_index
 (print, rrr, profile) = ut.inject2(__name__, '[core_annots]')
 
 
-register_preproc = register_preprocs['annot']
+derived_attribute = register_preprocs['annot']
 register_subprop = register_subprops['annot']
-# dtool.Config.register_func = register_preproc
+# dtool.Config.register_func = derived_attribute
 
 
 def testdata_core(defaultdb='testdb1', size=2):
@@ -78,7 +78,7 @@ class ChipConfig(dtool.Config):
     _param_info_list = [
         #ut.ParamInfo('dim_size', 128, 'sz', hideif=None),
         #ut.ParamInfo('dim_size', 960, 'sz', hideif=None),
-        ut.ParamInfo('dim_size', 700, 'sz', hideif=None),  # TODO: allow types to vary
+        ut.ParamInfo('dim_size', 700, 'sz', hideif=None, type_=eval),  # TODO: allow types to vary
         ut.ParamInfo(
             'resize_dim', 'width', '',
             #'resize_dim', 'area', '',
@@ -96,7 +96,7 @@ class ChipConfig(dtool.Config):
 ChipImgType = dtool.ExternType(vt.imread, vt.imwrite, extkey='ext')
 
 
-@register_preproc(
+@derived_attribute(
     tablename='chips', parents=['annotations'],
     colnames=['img', 'width', 'height', 'M'],
     coltypes=[ChipImgType, int, int, np.ndarray],
@@ -123,6 +123,7 @@ def compute_chip(depc, aid_list, config=None):
         ibeis --tf compute_chip --show --pad=64 --dim_size=256 --db PZ_MTEST
         ibeis --tf compute_chip --show --pad=64 --dim_size=None --db PZ_MTEST
         ibeis --tf compute_chip --show --db humpbacks
+        ibeis --tf compute_chip:1 --show
 
     Example:
         >>> # ENABLE_DOCTEST
@@ -140,6 +141,23 @@ def compute_chip(depc, aid_list, config=None):
         >>> import ibeis.viz.interact.interact_chip
         >>> interact_obj = ibeis.viz.interact.interact_chip.interact_multichips(ibs, aid_list, config2_=config)
         >>> interact_obj.start()
+        >>> pt.show_if_requested()
+
+    Example:
+        >>> # ENABLE_DOCTEST
+        >>> from ibeis.core_annots import *  # NOQA
+        >>> import ibeis
+        >>> defaultdb = 'testdb1'
+        >>> ibs = ibeis.opendb(defaultdb=defaultdb)
+        >>> depc = ibs.depc_annot
+        >>> config = ChipConfig(**{'dim_size': (256, 256), 'resize_dim': 'wh'})
+        >>> #dlg = config.make_qt_dialog()
+        >>> #config = dlg.widget.config
+        >>> aid_list = ibs.get_valid_aids()[0:8]
+        >>> chips = depc.get_property('chips', aid_list, 'img', config=config)
+        >>> ut.quit_if_noshow()
+        >>> import plottool as pt
+        >>> pt.imshow(vt.stack_image_recurse(chips))
         >>> pt.show_if_requested()
 
     """
@@ -232,7 +250,7 @@ def compute_chip(depc, aid_list, config=None):
         gid, new_size, M = tup
         # Read parent image # TODO: buffer this
         if gid != last_gid:  # We assume the gids are nicely ordered, no need to load the image more than once, if so
-            imgBGR = ibs.get_images(gid)
+            imgBGR = ibs.get_image_imgdata(gid)
             last_gid = gid
         # Warp chip
         chipBGR = cv2.warpAffine(imgBGR, M[0:2], tuple(new_size), **warpkw)
@@ -261,7 +279,7 @@ class AnnotMaskConfig(dtool.Config):
     ]
 
 
-@register_preproc(
+@derived_attribute(
     tablename='annotmask', parents=['annotations'],
     colnames=['img', 'width', 'height'],
     coltypes=[('extern', vt.imread), int, int],
@@ -364,7 +382,7 @@ ProbchipImgType = dtool.ExternType(ut.partial(vt.imread, grayscale=True),
                                    vt.imwrite, extern_ext='.png')
 
 
-@register_preproc(
+@derived_attribute(
     tablename='probchip', parents=['annotations'],
     colnames=['img'],
     coltypes=[ProbchipImgType],
@@ -542,6 +560,12 @@ def postprocess_mask(mask, thresh=20, kernel_size=20):
     SeeAlso:
         python -m ibeis_cnn --tf generate_species_background_mask --show --db PZ_Master1 --aid 9970
 
+    Ignore:
+        input_tuple = aid_list
+        tablename = 'probchip'
+        config = full_config
+        rowid_kw = dict(config=config)
+
     Example:
         >>> # ENABLE_DOCTEST
         >>> from ibeis.core_annots import *  # NOQA
@@ -571,6 +595,99 @@ def postprocess_mask(mask, thresh=20, kernel_size=20):
     mask2 = cv2.morphologyEx(mask2, cv2.MORPH_OPEN, kernel)
     mask2 = cv2.morphologyEx(mask2, cv2.MORPH_CLOSE, kernel)
     return mask2
+
+
+class HOGConfig(dtool.Config):
+    _param_info_list = [
+        ut.ParamInfo('orientations', 8),
+        ut.ParamInfo('pixels_per_cell', (16, 16)),
+        ut.ParamInfo('cells_per_block', (1, 1)),
+    ]
+
+
+def make_hog_block_image(hog, config=None):
+    """
+    References:
+        https://github.com/scikit-image/scikit-image/blob/master/skimage/feature/_hog.py
+    """
+
+    from skimage import draw
+
+    if config is None:
+        config = HOGConfig()
+
+    cx, cy = config['pixels_per_cell']
+
+    normalised_blocks = hog
+    (n_blocksy, n_blocksx, by, bx, orientations) = normalised_blocks.shape
+
+    n_cellsx = (n_blocksx - 1) + bx
+    n_cellsy = (n_blocksy - 1) + by
+
+    # Undo the normalization step
+    orientation_histogram = np.zeros((n_cellsy, n_cellsx, orientations))
+
+    for x in range(n_blocksx):
+        for y in range(n_blocksy):
+            norm_block = normalised_blocks[y, x, :]
+            # hack, this only works right for block sizes of 1
+            orientation_histogram[y:y + by, x:x + bx, :] = norm_block
+
+    sx = n_cellsx * cx
+    sy = n_cellsy * cy
+
+    radius = min(cx, cy) // 2 - 1
+    orientations_arr = np.arange(orientations)
+    dx_arr = radius * np.cos(orientations_arr / orientations * np.pi)
+    dy_arr = radius * np.sin(orientations_arr / orientations * np.pi)
+    hog_image = np.zeros((sy, sx), dtype=float)
+    for x in range(n_cellsx):
+        for y in range(n_cellsy):
+            for o, dx, dy in zip(orientations_arr, dx_arr, dy_arr):
+                centre = tuple([y * cy + cy // 2, x * cx + cx // 2])
+                rr, cc = draw.line(int(centre[0] - dx),
+                                   int(centre[1] + dy),
+                                   int(centre[0] + dx),
+                                   int(centre[1] - dy))
+                hog_image[rr, cc] += orientation_histogram[y, x, o]
+    return hog_image
+
+
+@derived_attribute(
+    tablename='hog', parents=['chips'],
+    colnames=['hog'],
+    coltypes=[np.ndarray],
+    configclass=HOGConfig,
+    fname='hogcache', chunksize=32,
+)
+def compute_hog(depc, cid_list, config=None):
+    """
+    Example:
+        >>> # ENABLE_DOCTEST
+        >>> from ibeis.core_annots import *  # NOQA
+        >>> ibs, depc, aid_list = testdata_core()
+        >>> chip_config = {}
+        >>> config = HOGConfig()
+        >>> cid_list = depc.get_rowids('chips', aid_list, config=chip_config)
+        >>> hoggen = compute_hog(depc, cid_list, config)
+        >>> hog = list(hoggen)[0]
+        >>> ut.quit_if_noshow()
+        >>> import plottool as pt
+        >>> hog_image = make_hog_block_image(hog, config)
+        >>> ut.show_if_requested()
+    """
+    import skimage.feature
+    orientations     = config['orientations']
+
+    ut.assert_all_not_None(cid_list, 'cid_list')
+    chip_fpath_list = depc.get_native('chips', cid_list, 'img', read_extern=False)
+
+    for chip_fpath in chip_fpath_list:
+        chip = vt.imread(chip_fpath, grayscale=True) / 255.0
+        hog = skimage.feature.hog(chip, feature_vector=False,
+                                  orientations=orientations,
+                                  pixels_per_cell=(16, 16), cells_per_block=(1, 1))
+        yield (hog,)
 
 
 class FeatConfig(dtool.Config):
@@ -610,7 +727,7 @@ class FeatConfig(dtool.Config):
         return hesaff_param_dict
 
 
-@register_preproc(
+@derived_attribute(
     tablename='feat', parents=['chips'],
     colnames=['num_feats', 'kpts', 'vecs'],
     coltypes=[int, np.ndarray, np.ndarray],
@@ -777,7 +894,7 @@ class FeatWeightConfig(dtool.Config):
     #_parents = [FeatConfig, ProbchipConfig]
 
 
-@register_preproc(
+@derived_attribute(
     tablename='featweight', parents=['feat', 'probchip'],
     colnames=['fwg'],
     coltypes=[np.ndarray],
@@ -1022,7 +1139,7 @@ def test_cut(ibs, parent_rowids_T, score_list2):
                 print('diff = %r' % (diff,))
 
 
-@register_preproc(
+@derived_attribute(
     tablename='vsone', parents=['annotations', 'annotations'],
     colnames=['score', 'match'], coltypes=[float, ChipMatch],
     requestclass=VsOneRequest,
@@ -1071,9 +1188,9 @@ def compute_one_vs_one(depc, qaids, daids, config):
         >>> #ibs, aid_list = ibeis.testdata_aids('wd_peter2', 'timectrl:pername=2,view=left,view_ext=0,exclude_reference=True')
         >>> ibs, aid_list = ibeis.testdata_aids('testdb2', 'default:')
         >>> _, aids = ut.items_sorted_by_value(ut.group_items(aid_list, ibs.get_annot_occurrence_text(aid_list)), key=len)[-1]
-        >>> aid_list = aids
+        >>> aid_list = aids[0:4]
         >>> depc = ibs.depc_annot
-        >>> request = depc.new_request('vsone', aid_list, aid_list, {'dim_size': 450})
+        >>> request = depc.new_request('vsone', aid_list, aid_list, {'resize_dim': 'width', 'dim_size': 450})
         >>> config = request.config
         >>> parent_rowids_T = request.parent_rowids_T
         >>> qaids, daids = request.parent_rowids_T
@@ -1094,7 +1211,36 @@ def compute_one_vs_one(depc, qaids, daids, config):
         >>> match = res_list2[0]
         >>> match.print_inspect_str(request)
         >>> #match.show_analysis(qreq_=request)
-        >>> match.ishow_analysis(qreq_=request)
+        >>> #match.ishow_analysis(qreq_=request)
+        >>> #match.ishow_single_annotmatch(qreq_=request)
+        >>> match.show_single_annotmatch(qreq_=request, vert=False)
+        >>> ut.show_if_requested()
+
+
+    Example:
+        >>> # Example of a one-vs-one query
+        >>> import ibeis
+        >>> ibs = ibeis.opendb('testdb1')
+        >>> config = {'codename': 'vsone'}
+        >>> qreq_ = ibs.new_query_request([1], [2], cfgdict=config)
+        >>> cm_list = qreq_.execute()
+        >>> match = cm_list[0]
+        >>> match.print_inspect_str(qreq_)
+        >>> match.show_single_annotmatch(qreq_=qreq_, vert=False)
+        >>> import utool as ut
+        >>> ut.show_if_requested()
+
+    Example:
+        >>> # Example of a one-vs-many query
+        >>> import ibeis
+        >>> ibs = ibeis.opendb('testdb1')
+        >>> config = {'codename': 'vsmany'}
+        >>> qreq_ = ibs.new_query_request([1], ibs.get_valid_aids(), cfgdict=config)
+        >>> cm_list = qreq_.execute()
+        >>> match = cm_list[0]
+        >>> match.print_inspect_str(qreq_)
+        >>> match.show_single_annotmatch(qreq_=qreq_, vert=False)
+        >>> import utool as ut
         >>> ut.show_if_requested()
     """
     import ibeis
@@ -1160,7 +1306,7 @@ def compute_one_vs_one(depc, qaids, daids, config):
             H_list=[H],
             fsv_col_lbls=['L2_SIFT'])
         match._update_daid_index()
-        match.evaluate_dnids(ibs)
+        match.evaluate_dnids(ibs=ibs)
         match._update_daid_index()
         match.set_cannonical_name_score([score], [score])
 
@@ -1193,7 +1339,7 @@ class IndexerConfig(dtool.Config):
     _sub_config_list = [
         #FeatConfig,
         #ChipConfig,  # TODO: infer chip config from feat config
-        FeatWeightConfig,
+        #FeatWeightConfig,
     ]
 
     def get_flann_params(cfg):
@@ -1206,13 +1352,14 @@ testmode = ut.get_argflag('--testmode')
 
 
 #if 1 or testmode:
-@register_preproc(
+@derived_attribute(
     #tablename='neighbor_index', parents=['annotations*'],
     #tablename='neighbor_index', parents=['annotations'],
-    tablename='neighbor_index', parents=['feat*'],
+    #tablename='neighbor_index', parents=['feat*'],
+    tablename='neighbor_index', parents=['featweight*'],
+    # tablename='neighbor_index', parents=['feat*'],
     #tablename='neighbor_index', parents=['feat'],
     colnames=['indexer'], coltypes=[neighbor_index.NeighborIndex2],
-    #ismulti=True,
     configclass=IndexerConfig,
     chunksize=1, fname='indexer',
 )
@@ -1271,8 +1418,8 @@ def compute_neighbor_index(depc, fids_list, config):
 
 if testmode:
     # NOT YET READY
-    @register_preproc(
-        tablename='feat_neighbs', parents=['feat', 'neighbor_index'],
+    @derived_attribute(
+        tablename='feat_neighbs', parents=['featweight', 'neighbor_index'],
         colnames=['qfx2_idx', 'qfx2_dist'], coltypes=[np.ndarray, np.ndarray],
         #configclass=IndexerConfig,
         chunksize=1, fname='neighbors',
@@ -1333,7 +1480,7 @@ if testmode:
             yield qfx2_idx, qfx2_dist
 
     # NOT YET READY
-    @register_preproc(
+    @derived_attribute(
         tablename='sver', parents=['feat_neighbs'],
         colnames=['chipmatch'], coltypes=[ChipMatch],
         #configclass=IndexerConfig,
@@ -1342,7 +1489,7 @@ if testmode:
     def compute_sver(depc, fid_list, config):
         pass
 
-    @register_preproc(
+    @derived_attribute(
         tablename='vsmany', parents=['sver'],
         colnames=['chipmatch'], coltypes=[ChipMatch],
         #configclass=IndexerConfig,
@@ -1361,7 +1508,7 @@ class LabelerConfig(dtool.Config):
     ]
 
 
-@register_preproc(
+@derived_attribute(
     tablename='labeler', parents=['annotations'],
     colnames=['score', 'species', 'viewpoint', 'quality', 'orientation', 'probs'],
     coltypes=[float, str, str, str, float, dict],

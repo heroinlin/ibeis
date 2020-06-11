@@ -50,13 +50,13 @@ def _parse_args():
     params.parse_args()
 
 
-#@profile
+@profile
 def _init_matplotlib():
     from plottool import __MPL_INIT__
     __MPL_INIT__.init_matplotlib()
 
 
-#@profile
+@profile
 def _init_gui(activate=True):
     import guitool
     if NOT_QUIET:
@@ -74,7 +74,7 @@ def _init_gui(activate=True):
     return back
 
 
-#@profile
+@profile
 def _init_ibeis(dbdir=None, verbose=None, use_cache=True, web=None, **kwargs):
     """
     Private function that calls code to create an ibeis controller
@@ -89,7 +89,7 @@ def _init_ibeis(dbdir=None, verbose=None, use_cache=True, web=None, **kwargs):
     # Use command line dbdir unless user specifies it
     if dbdir is None:
         ibs = None
-        ut.printWARN('[main!] WARNING args.dbdir is None')
+        print('[main!] WARNING: args.dbdir is None')
     else:
         kwargs = kwargs.copy()
         request_dbversion = kwargs.pop('request_dbversion', None)
@@ -232,7 +232,7 @@ def set_newfile_permissions():
     #print('new_mask  = %o' % (mask,))
 
 
-#@profile
+@profile
 def main(gui=True, dbdir=None, defaultdb='cache',
          allow_newdir=False, db=None,
          delete_ibsdir=False,
@@ -257,18 +257,13 @@ def main(gui=True, dbdir=None, defaultdb='cache',
     from ibeis.init import main_commands
     from ibeis.init import sysres
     # Display a visible intro message
-    msg1 = '''
-    _____ ....... _______ _____ _______
-      |   |_____| |______   |   |______
-    ..|.. |.....| |______s__|__ ______|
-    '''
-    msg2 = '''
+    msg = '''
     _____ ______  _______ _____ _______
       |   |_____] |______   |   |______
     __|__ |_____] |______ __|__ ______|
     '''
     if NOT_QUIET:
-        print(msg2 if '--myway' not in sys.argv else msg1)
+        print(msg)
     # Init the only two main system api handles
     ibs = None
     back = None
@@ -293,6 +288,11 @@ def main(gui=True, dbdir=None, defaultdb='cache',
         from ibeis.other import ibsfuncs
         assert allow_newdir, 'must be making new directory if you are deleting everything!'
         ibsfuncs.delete_ibeis_database(dbdir)
+
+    #limit = sys.getrecursionlimit()
+    #if limit == 1000:
+    #    print('Setting Recursion Limit to 3000')
+    #    sys.setrecursionlimit(3000)
     # Execute preload commands
     main_commands.preload_commands(dbdir, **kwargs)  # PRELOAD CMDS
     try:
@@ -326,11 +326,35 @@ def opendb_in_background(*args, **kwargs):
 
 def opendb_bg_web(*args, **kwargs):
     """
-    Wrapper around opendb_in_background
+    Wrapper around opendb_in_background, returns a nice web_ibs
+    object to execute web calls using normal python-like syntax
+
+    Accespts domain and port as kwargs
+
+    Kwargs:
+        port, domain
+
+    CommandLine:
+        python -m ibeis.main_module opendb_bg_web
+
+    Example:
+        >>> # DISABLE_DOCTEST
+        >>> from ibeis.main_module import *  # NOQA
+        >>> print('Opening a web_ibs')
+        >>> web_ibs = opendb_bg_web()
+        >>> print('SUCESS Opened a web_ibs!')
+        >>> print(web_ibs)
+        >>> print('Now kill the web_ibs')
+        >>> web_ibs.terminate2()
     """
     import utool as ut
-    domain = kwargs.get('domain', ut.get_argval('--domain', type_=str, default=None))
-    port = kwargs.get('port', 5000)
+    kwargs = kwargs.copy()
+    domain = kwargs.pop('domain', ut.get_argval('--domain', type_=str, default=None))
+    port = kwargs.pop('port', 5000)
+
+    if 'wait' in kwargs:
+        print('NOTE: No need to specify wait param anymore. '
+              'This is automatically taken care of.')
 
     if domain is None:
         # Requesting a local test server
@@ -348,23 +372,76 @@ def opendb_bg_web(*args, **kwargs):
         domain = 'http://' + domain
     baseurl = domain  + ':' + str(port)
 
+    web_ibs.domain = domain
+    web_ibs.port = port
+    web_ibs.baseurl = baseurl
+
     def send_ibeis_request(suffix, type_='post', **kwargs):
         """
         Posts a request to a url suffix
         """
         import requests
         import utool as ut
+        if not suffix.endswith('/'):
+            raise Exception('YOU PROBABLY WANT A / AT THE END OF YOUR URL')
         payload = ut.map_dict_vals(ut.to_json, kwargs)
         if type_ == 'post':
             resp = requests.post(baseurl + suffix, data=payload)
-            content = ut.from_json(resp._content)
+            json_content = resp._content
         elif type_ == 'get':
             resp = requests.get(baseurl + suffix, data=payload)
-            content = ut.from_json(resp.content)
-        response = content['response']
-        return response
+            json_content = resp.content
+        try:
+            content = ut.from_json(json_content)
+        except ValueError:
+            raise Exception('Expected JSON string but got json_content=%r' % (json_content,))
+        else:
+            # print('content = %r' % (content,))
+            if content['status']['code'] != 200:
+                print(content['status']['message'])
+                raise Exception(content['status']['message'])
+        request_response = content['response']
+        return request_response
+
+    def wait_for_results(jobid, timeout=None, delays=[1, 3, 10]):
+        """
+        Waits for results from an engine
+        """
+        for _ in ut.delayed_retry_gen(delays):
+            print('Waiting for jobid = %s' % (jobid,))
+            status_response = web_ibs.send_ibeis_request('/api/engine/job/status/', jobid=jobid)
+            if status_response['jobstatus'] == 'completed':
+                break
+        return status_response
+
+    def read_engine_results(jobid):
+        result_response = web_ibs.send_ibeis_request('/api/engine/job/result/', jobid=jobid)
+        return result_response
+
+    def send_request_and_wait(suffix, type_='post', timeout=None, **kwargs):
+        jobid = web_ibs.send_ibeis_request(suffix, type_=type_, **kwargs)
+        status_response = web_ibs.wait_for_results(jobid, timeout)  # NOQA
+        result_response = web_ibs.read_engine_results(jobid)
+        #>>> cmdict = ut.from_json(result_response['json_result'])[0]
+        return result_response
 
     web_ibs.send_ibeis_request = send_ibeis_request
+    web_ibs.wait_for_results = wait_for_results
+    web_ibs.read_engine_results = read_engine_results
+    web_ibs.send_request_and_wait = send_request_and_wait
+
+    def wait_until_started():
+        """ waits until the web server responds to a request """
+        import requests
+        for count in ut.delayed_retry_gen([1], timeout=15):
+            if ut.VERBOSE:
+                print('Waiting for server to be up. count=%r' % (count,))
+            try:
+                web_ibs.send_ibeis_request('/api/test/heartbeat/', type_='get')
+                break
+            except requests.ConnectionError:
+                pass
+    wait_until_started()
     return web_ibs
 
 
@@ -435,7 +512,7 @@ def test_main(gui=True, dbdir=None, defaultdb='cache', allow_newdir=False,
     return ibs
 
 
-#@profile
+@profile
 def _preload(mpl=True, par=True, logging=True):
     """ Sets up python environment """
     import utool as ut
@@ -467,7 +544,7 @@ def _preload(mpl=True, par=True, logging=True):
     #return params.args
 
 
-#@profile
+@profile
 def main_loop(main_locals, rungui=True, ipy=False, persist=True):
     """
     Runs the qt loop if the GUI was initialized and returns an executable string

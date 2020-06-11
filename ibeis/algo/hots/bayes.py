@@ -21,6 +21,12 @@ print, rrr, profile = ut.inject2(__name__, '[bayes]')
 SPECIAL_BASIS_POOL = []
 #'fred', 'sue', 'tom']
 
+# Quickly change names to be consistent with papers Sorry, person reading code.
+# This will be confusing and inconsistent
+NAME_TTYPE = 'name'
+MATCH_TTYPE = 'same'
+SCORE_TTYPE = 'evidence_match'
+
 
 def test_model(num_annots, num_names, score_evidence=[], name_evidence=[],
                other_evidence={}, noquery=False, verbose=None,
@@ -32,19 +38,19 @@ def test_model(num_annots, num_names, score_evidence=[], name_evidence=[],
     model = make_name_model(num_annots, num_names, verbose=verbose, **kwargs)
 
     if verbose:
-        model.print_priors(ignore_ttypes=['match', 'score'])
+        model.print_priors(ignore_ttypes=[MATCH_TTYPE, SCORE_TTYPE])
 
     model, evidence, soft_evidence = update_model_evidence(
         model, name_evidence, score_evidence, other_evidence)
 
     if verbose and len(soft_evidence) != 0:
-        model.print_priors(ignore_ttypes=['match', 'score'],
+        model.print_priors(ignore_ttypes=[MATCH_TTYPE, SCORE_TTYPE],
                            title='Soft Evidence', color='green')
 
     #if verbose:
     #    ut.colorprint('\n --- Soft Evidence ---', 'white')
     #    for ttype, cpds in model.ttype2_cpds.items():
-    #        if ttype != 'match':
+    #        if ttype != MATCH_TTYPE:
     #            for fs_ in ut.ichunks(cpds, 4):
     #                ut.colorprint(ut.hz_str([f._cpdstr('psql') for f in fs_]),
     #                              'green')
@@ -55,8 +61,8 @@ def test_model(num_annots, num_names, score_evidence=[], name_evidence=[],
     if (len(evidence) > 0 or len(soft_evidence) > 0) and not noquery:
         evidence = model._ensure_internal_evidence(evidence)
         query_vars = []
-        query_vars += ut.list_getattr(model.ttype2_cpds['name'], 'variable')
-        #query_vars += ut.list_getattr(model.ttype2_cpds['match'], 'variable')
+        query_vars += ut.list_getattr(model.ttype2_cpds[NAME_TTYPE], 'variable')
+        #query_vars += ut.list_getattr(model.ttype2_cpds[MATCH_TTYPE], 'variable')
         query_vars = ut.setdiff(query_vars, evidence.keys())
         #query_vars = ut.setdiff(query_vars, soft_evidence.keys())
         query_results = cluster_query(model, query_vars, evidence,
@@ -100,8 +106,8 @@ def make_name_model(num_annots, num_names=None, verbose=True, mode=1,
                     special_names=None):
     r"""
     CommandLine:
-        python -m ibeis.algo.hots.bayes --exec-make_name_model --show
-        python -m ibeis.algo.hots.bayes --exec-make_name_model
+        python -m ibeis.algo.hots.bayes --exec-make_name_model --no-cnn
+        python -m ibeis.algo.hots.bayes --exec-make_name_model --show --no-cnn
         python -m ibeis.algo.hots.bayes --exec-make_name_model --num-annots=3
 
     Example:
@@ -134,7 +140,7 @@ def make_name_model(num_annots, num_names=None, verbose=True, mode=1,
 
     # Name Factor
     name_cpd_t = pgm_ext.TemplateCPD(
-        'name', ('n', num_names),
+        NAME_TTYPE, ('n', num_names),
         special_basis_pool=special_names)
     name_cpds = [name_cpd_t.new_cpd(parents=aid) for aid in annots]
     #name_cpds = [name_cpd_t.new_cpd(parents=aid, constrain_state=count)
@@ -149,8 +155,9 @@ def make_name_model(num_annots, num_names=None, verbose=True, mode=1,
         }[n1 == n2][match_type]
     match_states = ['diff', 'same']
     match_cpd_t = pgm_ext.TemplateCPD(
-        'match', match_states,
+        MATCH_TTYPE, match_states,
         evidence_ttypes=[name_cpd_t, name_cpd_t], pmf_func=match_pmf)
+    #match_cpd_t.varpref = 'S'
     namepair_cpds = ut.list_unflat_take(name_cpds, upper_diag_idxs)
     match_cpds = [match_cpd_t.new_cpd(parents=cpds)
                   for cpds in namepair_cpds]
@@ -173,8 +180,9 @@ def make_name_model(num_annots, num_names=None, verbose=True, mode=1,
         else:
             return p_score_given_same[-(score_type + 1)]
     score_cpd_t = pgm_ext.TemplateCPD(
-        'score', score_states,
+        SCORE_TTYPE, score_states,
         evidence_ttypes=[match_cpd_t], pmf_func=score_pmf)
+    #match_cpd_t.varpref = 'P'
     score_cpds = [score_cpd_t.new_cpd(parents=cpds)
                   for cpds in zip(match_cpds)]
     cpd_list.extend(score_cpds)
@@ -208,7 +216,7 @@ def make_name_model(num_annots, num_names=None, verbose=True, mode=1,
     model.num_names = num_names
 
     if verbose:
-        model.print_templates(ignore_ttypes=['match'])
+        model.print_templates(ignore_ttypes=[MATCH_TTYPE])
     return model
 
 
@@ -230,8 +238,8 @@ def update_model_evidence(model, name_evidence, score_evidence, other_evidence):
         >>> update_model_evidence(model, name_evidence, score_evidence,
         >>>                       other_evidence)
     """
-    name_cpds = model.ttype2_cpds['name']
-    score_cpds = model.ttype2_cpds['score']
+    name_cpds = model.ttype2_cpds[NAME_TTYPE]
+    score_cpds = model.ttype2_cpds[SCORE_TTYPE]
 
     evidence = {}
     evidence.update(other_evidence)
@@ -339,9 +347,9 @@ def collapse_labels(model, evidence, reduced_variables, reduced_row_idxs,
     # everything is the same, only the names have changed.
     # TODO: allow for multiple different label_ttypes
     # for label_ttype in label_ttypes
-    if 'name' not in model.ttype2_template:
+    if NAME_TTYPE not in model.ttype2_template:
         return reduced_row_idxs, reduced_values
-    label_ttypes = ['name']
+    label_ttypes = [NAME_TTYPE]
     for label_ttype in label_ttypes:
         ev_colxs = ttype2_ev_indices[label_ttype]
         re_colxs = ttype2_re_indices[label_ttype]
@@ -562,9 +570,8 @@ def compute_reduced_joint(model, query_vars, evidence, method,
         print('M_chernoff = %r' % (M_chernoff,))
         print('size = %r' % (size,))
         #np.log(2 / .1) / (2 * (.2 ** 2))
-
-        sampled = infr.likelihood_weighted_sample(
-            evidence=evidence_, size=size)
+        sampled = infr.likelihood_weighted_sample(evidence=evidence_,
+                                                  size=size)
         reduced_joint = pgm_ext.ApproximateFactor.from_sampled(sampled,
                                                                query_vars,
                                                                statename_dict=model.statename_dict)
@@ -632,7 +639,7 @@ def cluster_query(model, query_vars=None, evidence=None, soft_evidence=None,
         >>> model, evidence, soft_evidence = update_model_evidence(
         >>>     model, name_evidence, score_evidence, other_evidence)
         >>> evidence = model._ensure_internal_evidence(evidence)
-        >>> query_vars = ut.list_getattr(model.ttype2_cpds['name'], 'variable')
+        >>> query_vars = ut.list_getattr(model.ttype2_cpds[NAME_TTYPE], 'variable')
 
     GridExample:
         >>> # DISABLE_DOCTEST
@@ -711,7 +718,7 @@ def draw_tree_model(model, **kwargs):
         fnum = pt.ensure_fnum(None)
         fig = pt.figure(fnum=fnum, doclf=True)  # NOQA
         ax = pt.gca()
-        #name_nodes = sorted(ut.list_getattr(model.ttype2_cpds['name'], 'variable'))
+        #name_nodes = sorted(ut.list_getattr(model.ttype2_cpds[NAME_TTYPE], 'variable'))
         netx_graph = model.to_markov_model()
         #pos = netx.pygraphviz_layout(netx_graph)
         #pos = netx.graphviz_layout(netx_graph)
@@ -872,7 +879,7 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
 
     has_infered = evidence or var2_post
     if has_infered:
-        ignore_prior_with_ttype = ['score', 'match']
+        ignore_prior_with_ttype = [SCORE_TTYPE, MATCH_TTYPE]
         show_prior = False
     else:
         ignore_prior_with_ttype = []
@@ -924,13 +931,13 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
             return color
 
         if variable in evidence:
-            if cpd.ttype == 'score':
+            if cpd.ttype == SCORE_TTYPE:
                 cmap_index = evidence[variable] / (cpd.variable_card - 1)
                 color = cmap(cmap_index)
                 color = pt.lighten_rgb(color, .4)
                 color = np.array(color)
                 node_color.append(color)
-            elif cpd.ttype == 'name':
+            elif cpd.ttype == NAME_TTYPE:
                 color = name_colors[evidence[variable]]
                 color = np.array(color)
                 node_color.append(color)
@@ -943,10 +950,10 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
         #    color = get_name_color(prior_marg)
         #    node_color.append(color)
         else:
-            if cpd.ttype == 'name' and post_marg is not None:
+            if cpd.ttype == NAME_TTYPE and post_marg is not None:
                 color = get_name_color(post_marg)
                 node_color.append(color)
-            elif cpd.ttype == 'match' and post_marg is not None:
+            elif cpd.ttype == MATCH_TTYPE and post_marg is not None:
                 color = cmap(post_marg.values[1])
                 color = pt.lighten_rgb(color, .4)
                 color = np.array(color)
@@ -965,7 +972,7 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
             prior_tas.append(dict(text=prior_text, pos=pos, color=prior_color, **takw2))
         if show_evidence:
             _takw1 = takw1
-            if cpd.ttype == 'score':
+            if cpd.ttype == SCORE_TTYPE:
                 _takw1 = takw2
             evidence_text = cpd.variable_statenames[evidence[variable]]
             if isinstance(evidence_text, int):
@@ -973,7 +980,7 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
             evidence_tas.append(dict(text=evidence_text, pos=pos, color=color, **_takw1))
         if show_post:
             _takw1 = takw1
-            if cpd.ttype == 'match':
+            if cpd.ttype == MATCH_TTYPE:
                 _takw1 = takw2
             post_text = pgm_ext.make_factor_text(post_marg, 'post')
             post_tas.append(dict(text=post_text, pos=pos, color=None, **_takw1))
@@ -1010,7 +1017,7 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
 
     xmin, ymin = np.array(pos_list).min(axis=0)
     xmax, ymax = np.array(pos_list).max(axis=0)
-    num_annots = len(model.ttype2_cpds['name'])
+    num_annots = len(model.ttype2_cpds[NAME_TTYPE])
     if num_annots > 4:
         ax.set_xlim((xmin - 40, xmax + 40))
         ax.set_ylim((ymin - 50, ymax + 50))
@@ -1040,10 +1047,10 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
 
     # Hack in colorbars
     if has_infered:
-        pt.colorbar(np.linspace(0, 1, len(name_colors)), name_colors, lbl='name',
-                    ticklabels=model.ttype2_template['name'].basis, ticklocation='left')
+        pt.colorbar(np.linspace(0, 1, len(name_colors)), name_colors, lbl=NAME_TTYPE,
+                    ticklabels=model.ttype2_template[NAME_TTYPE].basis, ticklocation='left')
 
-        basis = model.ttype2_template['score'].basis
+        basis = model.ttype2_template[SCORE_TTYPE].basis
         scalars = np.linspace(0, 1, len(basis))
         scalars = np.linspace(0, 1, 100)
         colors = pt.scores_to_color(scalars, cmap_=cmap_, reverse_cmap=False,
@@ -1051,9 +1058,9 @@ def show_model(model, evidence={}, soft_evidence={}, **kwargs):
         colors = [pt.lighten_rgb(c, .4) for c in colors]
 
         if ut.list_type(basis) is int:
-            pt.colorbar(scalars, colors, lbl='score', ticklabels=np.array(basis) + 1)
+            pt.colorbar(scalars, colors, lbl=SCORE_TTYPE, ticklabels=np.array(basis) + 1)
         else:
-            pt.colorbar(scalars, colors, lbl='score', ticklabels=basis)
+            pt.colorbar(scalars, colors, lbl=SCORE_TTYPE, ticklabels=basis)
             #print('basis = %r' % (basis,))
 
     # Draw probability hist

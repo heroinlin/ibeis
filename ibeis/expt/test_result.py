@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function, unicode_literals
 import six
-import numpy as np
-from six.moves import zip, range, map
-import vtool as vt
 import copy
+import operator
 import utool as ut
+import vtool as vt
+import numpy as np
+from functools import partial
+from six.moves import zip, range, map, reduce
 from ibeis.expt import cfghelpers
 from ibeis.expt import experiment_helpers  # NOQA
-import operator
-from functools import partial
 print, rrr, profile = ut.inject2(__name__, '[testres]')
 
 
@@ -38,7 +38,7 @@ def combine_testres_list(ibs, testres_list):
     acfg_lbl_list = annotation_configs.get_varied_acfg_labels(acfg_list)
 
     flat_acfg_list = annotation_configs.flatten_acfg_list(acfg_list)
-    nonvaried_acfg, varied_acfg_list = cfghelpers.partition_varied_cfg_list(flat_acfg_list)
+    nonvaried_acfg, varied_acfg_list = ut.partition_varied_cfg_list(flat_acfg_list)
 
     def combine_lbls(lbl, acfg_lbl):
         if len(lbl) == 0:
@@ -46,6 +46,8 @@ def combine_testres_list(ibs, testres_list):
         if len(acfg_lbl) == 0:
             return lbl
         return lbl + '+' + acfg_lbl
+
+    # TODO: depcirate cfg_dict list for pcfg_list (I think)
 
     agg_cfg_list = ut.flatten([tr.cfg_list for tr in testres_list])
     agg_cfgx2_qreq_ = ut.flatten([tr.cfgx2_qreq_ for tr in testres_list])
@@ -90,7 +92,7 @@ def combine_testres_list(ibs, testres_list):
 
 
 @six.add_metaclass(ut.ReloadingMetaclass)
-class TestResult(object):
+class TestResult(ut.NiceRepr):
     def __init__(testres, cfg_list, cfgx2_lbl, cfgx2_cfgresinfo, cfgx2_qreq_):
         assert len(cfg_list) == len(cfgx2_lbl), (
             'bad lengths1: %r != %r' % (len(cfg_list), len(cfgx2_lbl)))
@@ -113,11 +115,10 @@ class TestResult(object):
     def __str__(testres):
         return testres.reconstruct_test_flags()
 
-    def __repr__(testres):
-        return testres._custom_str()
+    #def __repr__(testres):
+    #    return testres._custom_str()
 
-    def _custom_str(testres):
-        typestr = testres.__class__.__name__
+    def __nice__(testres):
         dbname = None if testres.ibs is None else testres.ibs.get_dbname()
         # hashkw = dict(_new=True, pathsafe=False)
         infostr_ = 'nCfg=%s'  % testres.nConfig
@@ -125,21 +126,20 @@ class TestResult(object):
             qreq_ = testres.cfgx2_qreq_[0]
             infostr_ += ' nQ=%s, nD=%s %s' % (len(qreq_.qaids), len(qreq_.daids), qreq_.get_pipe_hashid())
         # nD=%s %s' % (, len(testres.daids), testres.get_pipe_hashid())
-        custom_str = '<%s(%s) %s at %s>' % (typestr, dbname, infostr_, hex(id(testres)))
-        return custom_str
+        nice = '%s %s' % (dbname, infostr_)
+        return nice
 
     @property
     def ibs(testres):
-        def tryget_ibs(qreq_):
+        ibs_list = []
+        for qreq_ in testres.cfgx2_qreq_:
             try:
-                return qreq_.ibs
+                ibs_list.append(qreq_.ibs)
             except AttributeError:
-                return qreq_.depc.controller
-
-        ibs_list = [tryget_ibs(qreq_) for qreq_ in testres.cfgx2_qreq_]
+                ibs_list.append(qreq_.depc.controller)
         ibs = ibs_list[0]
         for ibs_ in ibs_list:
-            assert ibs is ibs_, 'not all query requests are using the same controller'
+            assert ibs is ibs_, ('all requests must use the same controller')
         return ibs
 
     @property
@@ -535,6 +535,48 @@ class TestResult(object):
             #assert False, 'param is not varied'
         return cfgx_list
 
+    def get_pipecfg_args(testres):
+        if '_cfgstr' in testres.common_cfgdict:
+            pipecfg_args = [testres.common_cfgdict['_cfgstr']]
+        else:
+            pipecfg_args = ut.unique_ordered(
+                [cfg['_cfgstr'] for cfg in testres.varied_cfg_list])
+        return ' ' .join(pipecfg_args)
+
+    def get_annotcfg_args(testres):
+        """
+        CommandLine:
+            # TODO: More robust fix
+            # To reproduce the error
+            ibeis -e rank_cdf --db humpbacks_fb -a default:mingt=2,qsize=10,dsize=100 default:qmingt=2,qsize=10,dsize=100 -t default:proot=BC_DTW,decision=max,crop_dim_size=500,crop_enabled=True,manual_extract=False,use_te_scorer=True,ignore_notch=True,te_score_weight=0.5 --show
+        """
+        if '_cfgstr' in testres.common_acfg['common']:
+            annotcfg_args = [testres.common_acfg['common']['_cfgstr']]
+        else:
+            try:
+                annotcfg_args = ut.unique_ordered([
+                    acfg['common']['_cfgstr']
+                    for acfg in testres.varied_acfg_list])
+            except KeyError:
+                # HACK FIX
+                try:
+                    annotcfg_args = ut.unique_ordered([
+                        acfg['_cfgstr']
+                        for acfg in testres.varied_acfg_list])
+                except KeyError:
+                    annotcfg_args = ut.unique_ordered([
+                        acfg['qcfg__cfgstr']
+                        for acfg in testres.varied_acfg_list])
+        return ' ' .join(annotcfg_args)
+
+    def reconstruct_test_flags(testres):
+        flagstr =  ' '.join([
+            '-a ' + testres.get_annotcfg_args(),
+            '-t ' + testres.get_pipecfg_args(),
+            '--db ' + testres.ibs.get_dbname()
+        ])
+        return flagstr
+
     def get_full_cfgstr(testres, cfgx):
         """ both qannots and dannots included """
         full_cfgstr = testres.cfgx2_qreq_[cfgx].get_full_cfgstr()
@@ -587,17 +629,20 @@ class TestResult(object):
             #('sample_per_ref_name', 'per_gt_name'),
             #('per_name', 'per_gf_name'),   # Try to make labels clearer for paper
             #----
-            ('prescore_method=\'?csum\'?,score_method=\'?csum\'?,?', 'amech'),
-            ('prescore_method=\'?nsum\'?,score_method=\'?nsum\'?,?', 'fmech'),
+            #('prescore_method=\'?csum\'?,score_method=\'?csum\'?,?', 'amech'),
+            #('prescore_method=\'?nsum\'?,score_method=\'?nsum\'?,?', 'fmech'),
+            ('prescore_method=\'?csum\'?,score_method=\'?csum\'?,?', 'mech=annot'),
+            ('prescore_method=\'?nsum\'?,score_method=\'?nsum\'?,?', 'mech=name'),
             ('force_const_size=[^,]+,?', ''),
-            (r'[dq]_true_size=\d+,?', ''),
-            (r'_orig_size=[^,]+,?', ''),
+            (r'[dq]?_true_size=\d+,?', ''),
+            (r'[dq]?_orig_size=[^,]+,?', ''),
             # Hack
             ('[qd]?exclude_reference=' + ut.regex_or(['True', 'False', 'None']) + '\,?', ''),
             #('=True', '=On'),
             #('=False', '=Off'),
             ('=True', '=T'),
             ('=False', '=F'),
+            (',$', ''),
         ]
         for ser, rep in repl_list:
             lbl = re.sub(ser, rep, lbl)
@@ -632,8 +677,11 @@ class TestResult(object):
             >>> cfg_lbls = testres.get_short_cfglbls()
             >>> result = ('cfg_lbls = %s' % (ut.list_str(cfg_lbls),))
             >>> print(result)
+            cfg_lbls = [
+                'default:dim_size=450+ctrl',
+                'default:dim_size=550+ctrl',
+            ]
         """
-        from ibeis.expt import cfghelpers
         from ibeis.expt import annotation_configs
         if False:
             acfg_names = [acfg['qcfg']['_cfgstr'] for acfg in testres.cfgx2_acfg]
@@ -644,7 +692,6 @@ class TestResult(object):
             a_label_groups = []
             for groupx in a_groupxs:
                 acfg_list = ut.take(testres.cfgx2_acfg, groupx)
-                #varied_lbls = cfghelpers.get_varied_cfg_lbls(acfg_list)
                 varied_lbls = annotation_configs.get_varied_acfg_labels(
                     acfg_list, mainkey='_cfgstr')
                 a_label_groups.append(varied_lbls)
@@ -669,7 +716,7 @@ class TestResult(object):
             for pa in pa_tups:
                 new_parts = []
                 for part in pa:
-                    _tup = part.split(cfghelpers.NAMEVARSEP)
+                    _tup = part.split(ut.NAMEVARSEP)
                     name, settings = _tup if len(_tup) > 1 else (_tup[0], '')
                     new_parts.append(part if settings else name)
                 if len(new_parts) == 2 and new_parts[1] == 'default':
@@ -693,17 +740,42 @@ class TestResult(object):
                 group_lbl_parts = []
                 for px in range(num_parts):
                     cfgs = ut.take_column(part_dicts, px)
-                    nonvaried_cfg = cfghelpers.partition_varied_cfg_list(cfgs)[0]
-                    group_lbl_parts.append(cfghelpers.get_cfg_lbl(nonvaried_cfg))
+                    nonvaried_cfg = ut.partition_varied_cfg_list(cfgs)[0]
+                    group_lbl_parts.append(ut.get_cfg_lbl(nonvaried_cfg))
                     # print('nonvaried_lbl = %r' % (nonvaried_lbl,))
                 group_lbl = '+'.join(group_lbl_parts)
                 group_lbls.append(group_lbl)
             cfg_lbls = group_lbls
         return cfg_lbls
 
-    def get_varied_labels(testres):
+    def get_varied_labels(testres, shorten=False, join_acfgs=False):
+        """
+        Returns labels indicating only the parameters that have been varied between
+        different annot/pipeline configurations.
+
+        Helper for consistent figure titles
+
+        CommandLine:
+            python -m ibeis --tf TestResult.make_figtitle  --prefix "Seperability " --db GIRM_Master1   -a timectrl -t Ell:K=2     --hargv=scores
+            python -m ibeis --tf TestResult.make_figtitle
+
+        Example:
+            >>> # SLOW_DOCTEST
+            >>> from ibeis.expt.test_result import *  # NOQA
+            >>> import ibeis
+            >>> ibs, testres = ibeis.testdata_expts('PZ_MTEST', t='default:K=[1,2]', a='timectrl:qsize=[1,2],dsize=3')
+            >>> varied_lbls = testres.get_varied_labels()
+            >>> result = ('varied_lbls = %r' % (varied_lbls,))
+            >>> print(result)
+            varied_lbls = [u'K=1+qsize=1', u'K=2+qsize=1', u'K=1+qsize=2', u'K=2+qsize=2']
+        """
+        from ibeis.expt import annotation_configs
+
+        varied_acfgs = annotation_configs.get_varied_acfg_labels(testres.cfgx2_acfg, checkname=True)
+        #print('testres.cfgx2_acfg = %s' % (ut.repr3(testres.cfgx2_acfg),))
         varied_pcfgs = ut.get_varied_cfg_lbls(testres.cfgx2_pcfg, checkname=True)
-        varied_acfgs = ut.get_varied_cfg_lbls(testres.cfgx2_acfg, checkname=True)
+        print('varied_pcfgs = %r' % (varied_pcfgs,))
+        #varied_acfgs = ut.get_varied_cfg_lbls(testres.cfgx2_acfg, checkname=True)
         def combo_lbls(lbla, lblp):
             parts = []
             if lbla != ':' and lbla:
@@ -712,8 +784,59 @@ class TestResult(object):
                 parts.append(lblp)
             return '+'.join(parts)
 
+        if join_acfgs:
+            # Hack for the grouped config problem
+            new_varied_acfgs = []
+            groupxs = testres.get_cfgx_groupxs()
+            grouped_acfgs = ut.apply_grouping(varied_acfgs, groupxs)
+            grouped_pcfgs = ut.apply_grouping(varied_pcfgs, groupxs)
+            for part in grouped_acfgs:
+                part = [p if ':' in p else ':' + p for p in part]
+                cfgdict = cfghelpers.parse_cfgstr_list2(part, strict=False)[0][0]
+                new_acfg = ut.partition_varied_cfg_list([cfgdict])[0]
+                new_lbl = ut.get_cfg_lbl(new_acfg, with_name=False)
+                new_varied_acfgs.append(new_lbl)
+            varied_pcfgs = ut.take_column(grouped_pcfgs, 0)
+            varied_acfgs = new_varied_acfgs
+
         varied_lbls = [combo_lbls(lbla, lblp) for lblp, lbla in zip(varied_acfgs, varied_pcfgs)]
+        if shorten:
+            varied_lbls = [testres._shorten_lbls(lbl) for lbl in varied_lbls]
+
         return varied_lbls
+
+    #def get_nonvaried_labels(testres):
+    #    """
+    #    Returns labels the parameters common to all annot/pipeline configurations.
+    #    """
+    #    nonvaried_pcfgs = ut.get_nonvaried_cfg_lbls(testres.cfgx2_pcfg)
+    #    nonvaried_acfgs = ut.get_nonvaried_cfg_lbls(testres.cfgx2_acfg)
+    #    def combo_lbls(lbla, lblp):
+    #        parts = []
+    #        if lbla != ':' and lbla:
+    #            parts.append(lbla)
+    #        if lblp != ':' and lblp:
+    #            parts.append(lblp)
+    #        return '+'.join(parts)
+
+    #    nonvaried_lbls = [combo_lbls(lbla, lblp) for lblp, lbla in zip(nonvaried_acfgs, nonvaried_pcfgs)]
+    #    return nonvaried_lbls
+
+    def get_sorted_config_labels(testres):
+        """
+        helper
+        """
+        key = 'qx2_bestranks'
+        cfgx2_cumhist_percent, edges = testres.get_rank_percentage_cumhist(bins='dense', key=key)
+        label_list = testres.get_short_cfglbls()
+        label_list = [
+            ('%6.2f%%' % (percent,)) +
+            #ut.scalar_str(percent, precision=2)
+            ' - ' + label
+            for percent, label in zip(cfgx2_cumhist_percent.T[0], label_list)]
+        sortx = cfgx2_cumhist_percent.T[0].argsort()[::-1]
+        label_list = ut.take(label_list, sortx)
+        return label_list
 
     def make_figtitle(testres, plotname='', filt_cfg=None):
         """
@@ -745,7 +868,7 @@ class TestResult(object):
         figtitle += ' ' + title_aug
 
         if filt_cfg is not None:
-            filt_cfgstr = cfghelpers.get_cfg_lbl(filt_cfg)
+            filt_cfgstr = ut.get_cfg_lbl(filt_cfg)
             if filt_cfgstr.strip() != ':':
                 figtitle += ' ' + filt_cfgstr
         return figtitle
@@ -809,6 +932,8 @@ class TestResult(object):
                 ut.printex(ex)
                 raise
         if with_size:
+            if ut.get_argflag('--hack_size_nl'):
+                title_aug += '\n'
             if testres.has_constant_qaids():
                 title_aug += ' #qaids=%r' % (len(testres.qaids),)
             elif testres.has_constant_length_qaids():
@@ -909,10 +1034,10 @@ class TestResult(object):
     def print_unique_annot_config_stats(testres, ibs=None):
         r"""
         Args:
-            ibs (IBEISController):  ibeis controller object(default = None)
+            ibs (IBEISController): ibeis controller object(default = None)
 
         CommandLine:
-            python -m ibeis --tf TestResult.print_unique_annot_config_stats
+            python -m ibeis TestResult.print_unique_annot_config_stats
 
         Example:
             >>> # DISABLE_DOCTEST
@@ -946,6 +1071,9 @@ class TestResult(object):
                     ibs.print_annot_stats(daids, prefix='d')
                 print('L___')
 
+    def report(testres):
+        testres.print_results()
+
     def print_results(testres):
         r"""
         CommandLine:
@@ -962,14 +1090,6 @@ class TestResult(object):
         from ibeis.expt import experiment_printres
         ibs = testres.ibs
         experiment_printres.print_results(ibs, testres)
-
-    @ut.memoize
-    def get_new_hard_qx_list(testres):
-        """ Mark any query as hard if it didnt get everything correct """
-        rank_mat = testres.get_rank_mat()
-        is_new_hard_list = rank_mat.max(axis=1) > 0
-        new_hard_qx_list = np.where(is_new_hard_list)[0]
-        return new_hard_qx_list
 
     def get_common_qaids(testres):
         if not testres.has_constant_qaids():
@@ -1012,7 +1132,7 @@ class TestResult(object):
             >>> import plottool as pt
             >>> pt.word_histogram2(flat_tags, fnum=1, pnum=(1, 2, 1))
             >>> pt.wordcloud(' '.join(flat_tags), fnum=1, pnum=(1, 2, 2))
-            >>> pt.set_figtitle(cfghelpers.get_cfg_lbl(filt_cfg))
+            >>> pt.set_figtitle(ut.get_cfg_lbl(filt_cfg))
             >>> ut.show_if_requested()
         """
         gt_tags = testres.get_gt_tags()
@@ -1183,6 +1303,8 @@ class TestResult(object):
         if isinstance(filt_cfg, six.string_types):
             _combos = cfghelpers.parse_cfgstr_list2([filt_cfg], strict=False)
             filt_cfg = ut.flatten(_combos)[0]
+        if filt_cfg is None:
+            filt_cfg = {}
 
         qaids = testres.get_test_qaids() if qaids is None else qaids
         truth2_prop, prop2_mat = testres.get_truth2_prop(qaids)
@@ -1230,7 +1352,7 @@ class TestResult(object):
             pdistx = vt.pdist_indicies(nCols)
             pdist_list = np.array([vt.safe_pdist(row) for row in mat])
             flags_list = op(pdist_list, val)
-            colx_list = [np.unique(ut.flatten(pdistx.compress(flags, axis=0))) for flags in flags_list]
+            colx_list = [np.unique(ut.flatten(ut.compress(pdistx, flags))) for flags in flags_list]
             offsets = np.arange(0, nCols * len(mat), step=nCols)
             idx_list = ut.flatten([colx + offset for colx, offset in zip(colx_list, offsets)])
             mask = vt.index_to_boolmask(idx_list, maxval=offsets[-1] + nCols)
@@ -1291,7 +1413,7 @@ class TestResult(object):
             def print_pre(self, is_valid, filt_cfg_):
                 num_valid = is_valid.sum()
                 print('[testres] Sampling from is_valid.size=%r with filt=%r' %
-                      (is_valid.size, cfghelpers.get_cfg_lbl(filt_cfg_)))
+                      (is_valid.size, ut.get_cfg_lbl(filt_cfg_)))
                 print('  * is_valid.shape = %r' % (is_valid.shape,))
                 print('  * num_valid = %r' % (num_valid,))
                 self.prev_num_valid = num_valid
@@ -1320,19 +1442,28 @@ class TestResult(object):
         # Pop irrelevant info
         ut.delete_keys(filt_cfg_, ['_cfgstr', '_cfgindex', '_cfgname', '_cfgtype'])
         # Pop other non-rule config options
-        allcfg = filt_cfg_.pop('allcfg', None)
-        orderby = filt_cfg_.pop('orderby', None)
-        reverse = filt_cfg_.pop('reverse', None)
-        sortasc = filt_cfg_.pop('sortasc', None)
-        sortdsc = filt_cfg_.pop('sortdsc', filt_cfg_.pop('sortdesc', None))
-        max_pername = filt_cfg_.pop('max_pername', None)
-        require_all_cfg = filt_cfg_.pop('require_all_cfg', None)
-        index = filt_cfg_.pop('index', None)
+        valid_rules = []
+        def poprule(rulename, default):
+            # register other rule names for debuging
+            valid_rules.append(rulename)
+            return filt_cfg_.pop(rulename, default)
+        allcfg = poprule('allcfg', None)
+        orderby = poprule('orderby', None)
+        reverse = poprule('reverse', None)
+        sortasc = poprule('sortasc', None)
+        sortdsc = poprule('sortdsc', poprule('sortdesc', None))
+        max_pername = poprule('max_pername', None)
+        require_all_cfg = poprule('require_all_cfg', None)
+        index = poprule('index', None)
         # Pop all chosen rules
-        rule_value_list = [filt_cfg_.pop(key, None) for key, rule in rule_list]
+        rule_value_list = [poprule(key, None) for key, rule in rule_list]
 
         # Assert that only valid configurations were given
         if len(filt_cfg_) > 0:
+            print('ERROR')
+            print('filtcfg valid rules are = %s' % (ut.repr2(valid_rules, nl=1),))
+            for key in filt_cfg_.keys():
+                print('did you mean %r instead of %r?' % (ut.closet_words(key, valid_rules)[0], key))
             raise NotImplementedError('Unhandled filt_cfg.keys() = %r' % (filt_cfg_.keys()))
 
         # Remove test cases that do not satisfy chosen rules
@@ -1547,7 +1678,7 @@ class TestResult(object):
                 for aids in aid_mat.T
             ]).T
             annotmatch_rowid_mat = np.vstack([
-                ibs.get_annotmatch_rowid_from_superkey(test_qaids, aids)
+                ibs.get_annotmatch_rowid_from_undirected_superkey(test_qaids, aids)
                 for aids in aid_mat.T
             ]).T
             truth2_prop[truth]['annotmatch_rowid']  = annotmatch_rowid_mat
@@ -1631,48 +1762,6 @@ class TestResult(object):
             qres.ishow_analysis(
                 ibs, figtitle=query_lbl, fnum=fnum, annot_mode=1, qreq_=qreq_,
                 **show_kwargs)
-
-    def get_pipecfg_args(testres):
-        if '_cfgstr' in testres.common_cfgdict:
-            pipecfg_args = [testres.common_cfgdict['_cfgstr']]
-        else:
-            pipecfg_args = ut.unique_ordered(
-                [cfg['_cfgstr'] for cfg in testres.varied_cfg_list])
-        return ' ' .join(pipecfg_args)
-
-    def get_annotcfg_args(testres):
-        """
-        CommandLine:
-            # TODO: More robust fix
-            # To reproduce the error
-            ibeis -e rank_cdf --db humpbacks_fb -a default:mingt=2,qsize=10,dsize=100 default:qmingt=2,qsize=10,dsize=100 -t default:proot=BC_DTW,decision=max,crop_dim_size=500,crop_enabled=True,manual_extract=False,use_te_scorer=True,ignore_notch=True,te_score_weight=0.5 --show
-        """
-        if '_cfgstr' in testres.common_acfg['common']:
-            annotcfg_args = [testres.common_acfg['common']['_cfgstr']]
-        else:
-            try:
-                annotcfg_args = ut.unique_ordered([
-                    acfg['common']['_cfgstr']
-                    for acfg in testres.varied_acfg_list])
-            except KeyError:
-                # HACK FIX
-                try:
-                    annotcfg_args = ut.unique_ordered([
-                        acfg['_cfgstr']
-                        for acfg in testres.varied_acfg_list])
-                except KeyError:
-                    annotcfg_args = ut.unique_ordered([
-                        acfg['qcfg__cfgstr']
-                        for acfg in testres.varied_acfg_list])
-        return ' ' .join(annotcfg_args)
-
-    def reconstruct_test_flags(testres):
-        flagstr =  ' '.join([
-            '-a ' + testres.get_annotcfg_args(),
-            '-t ' + testres.get_pipecfg_args(),
-            '--db ' + testres.ibs.get_dbname()
-        ])
-        return flagstr
 
     def draw_score_diff_disti(testres):
         r"""
@@ -1823,21 +1912,25 @@ class TestResult(object):
         from ibeis.expt import experiment_drawing
         experiment_drawing.draw_rank_cdf(testres.ibs, testres)
 
-    def get_sorted_config_labels(testres):
+    def draw_match_cases(testres, **kwargs):
         """
-        helper
+        Wrapper
         """
-        key = 'qx2_bestranks'
-        cfgx2_cumhist_percent, edges = testres.get_rank_percentage_cumhist(bins='dense', key=key)
-        label_list = testres.get_short_cfglbls()
-        label_list = [
-            ('%6.2f%%' % (percent,)) +
-            #ut.scalar_str(percent, precision=2)
-            ' - ' + label
-            for percent, label in zip(cfgx2_cumhist_percent.T[0], label_list)]
-        sortx = cfgx2_cumhist_percent.T[0].argsort()[::-1]
-        label_list = ut.take(label_list, sortx)
-        return label_list
+        from ibeis.expt import experiment_drawing
+        experiment_drawing.draw_match_cases(testres.ibs, testres, **kwargs)
+
+    def draw_failure_cases(testres, **kwargs):
+        """
+        >>> from ibeis.other.dbinfo import *  # NOQA
+        >>> import ibeis
+        >>> ibs, testres = ibeis.testdata_expts(defaultdb='PZ_MTEST', a='timectrl:qsize=2', t='invar:AI=[False],RI=False', use_cache=False)
+        """
+        from ibeis.expt import experiment_drawing
+        #kwargs = kwargs.copy()
+        orig_filter = ':'
+        kwargs['f'] = orig_filter + 'fail'
+        case_pos_list = testres.case_sample2(':fail=True,index=0:5')
+        experiment_drawing.draw_match_cases(testres.ibs, testres, case_pos_list=case_pos_list, annot_modes=[1], interact=True)
 
     def find_score_thresh_cutoff(testres):
         """
@@ -2029,7 +2122,6 @@ class TestResult(object):
                 #[lbl.set_rotation(20) for lbl in ax.get_yticklabels()]
 
             pt.figure(fnum=pt.next_fnum())
-            import plottool as pt
             pt.plt.imshow(union_mat, interpolation='none', cmap='hot')
             pt.plt.colorbar()
             pt.set_title('union mat: cfg<x> and cfg<y> have <z> success cases in in total')
@@ -2037,14 +2129,12 @@ class TestResult(object):
             label_ticks()
 
             pt.figure(fnum=pt.next_fnum())
-            import plottool as pt
             pt.plt.imshow(isect_mat, interpolation='none', cmap='hot')
             pt.plt.colorbar()
             pt.set_title('isect mat: cfg<x> and cfg<y> have <z> success cases in common')
             label_ticks()
 
             pt.figure(fnum=pt.next_fnum())
-            import plottool as pt
             pt.plt.imshow(disjoint_mat, interpolation='none', cmap='hot')
             pt.plt.colorbar()
             pt.set_title('disjoint mat (union - isect): cfg<x> and cfg<y> have <z> success cases not in common')
@@ -2053,16 +2143,15 @@ class TestResult(object):
             #pt.plot_surface3d(xgrid, ygrid, improves_mat)
 
             pt.figure(fnum=pt.next_fnum())
-            import plottool as pt
             pt.plt.imshow(improves_mat, interpolation='none', cmap='hot')
             pt.plt.colorbar()
             pt.set_title('improves mat (diag.T - isect): cfg<x> got <z> qaids that cfg <y> missed')
             label_ticks()
             #pt.colorbar(np.unique(y))
 
-    def load_full_chipmatch_results(testres):
-        #cfgx2_qres
-        pass
+    #def load_full_chipmatch_results(testres):
+    #    #cfgx2_qres
+    #    pass
 
     def compare_score_pdfs(testres):
         """

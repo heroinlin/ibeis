@@ -49,7 +49,7 @@ class ANNOTATION_Interaction2(object):
         self.ibs = ibs
         self.gid = gid
         self.rows_updated_callback = rows_updated_callback
-        img = ibs.get_images(self.gid)
+        img = ibs.get_image_imgdata(self.gid)
         self.aid_list = ibs.get_image_aids(self.gid)
         bbox_list     = ibs.get_annot_bboxes(self.aid_list)
         #verts_list    = ibs.get_annot_verts(self.aid_list)  # TODO
@@ -64,7 +64,7 @@ class ANNOTATION_Interaction2(object):
             metadata['name']
         if True:
             interact_annotations.rrr()
-        self.interact_ANNOTATIONS = interact_annotations.ANNOTATIONInteraction(
+        self.interact_ANNOTATIONS = interact_annotations.AnnotationInteraction(
             img,
             bbox_list=bbox_list,
             theta_list=theta_list,
@@ -80,7 +80,8 @@ class ANNOTATION_Interaction2(object):
             #figure_to_use=None if reset_window else self.interact_ANNOTATIONS.fig,
         )
         if dodraw:
-            pt.update()
+            self.interact_ANNOTATIONS.start()
+            #pt.update()
 
     def commit_callback(self, unchanged_indices, deleted_indices,
                         changed_indices, changed_annottups, new_annottups):
@@ -145,7 +146,7 @@ class ANNOTATION_Interaction2(object):
                 self.interact_ANNOTATIONS.rrr()
             ibs = self.ibs
             self.gid = gid
-            img = ibs.get_images(self.gid)
+            img = ibs.get_image_imgdata(self.gid)
             self.aid_list = ibs.get_image_aids(self.gid)
             bbox_list = ibs.get_annot_bboxes(self.aid_list)
             theta_list = ibs.get_annot_thetas(self.aid_list)

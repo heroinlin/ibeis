@@ -57,13 +57,12 @@ try:
     from ibeis.algo.hots.query_request import QueryRequest
     from ibeis.algo.hots.chip_match import ChipMatch, AnnotMatch
     from ibeis.init.sysres import (get_workdir, set_workdir, ensure_pz_mtest,
-                                   ensure_nauts, ensure_wilddogs)
+                                   ensure_nauts, ensure_wilddogs, list_dbs)
     from ibeis.init import main_helpers
 
     from ibeis import algo
 
     from ibeis import expt
-    from ibeis import species
     from ibeis import templates
     from ibeis.templates import generate_notebook
     from ibeis.control.controller_inject import register_preprocs
@@ -301,7 +300,7 @@ rrrr = reload_subs
 
 from ibeis.control.DB_SCHEMA_CURRENT import VERSION_CURRENT
 __version__ = VERSION_CURRENT
-__version__ = '1.5.2'
+__version__ = '1.5.4'
 
 if __version__ != VERSION_CURRENT:
     raise AssertionError(
